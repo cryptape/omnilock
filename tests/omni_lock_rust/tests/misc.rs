@@ -4,6 +4,7 @@ use openssl::rsa::Rsa;
 use openssl::sign::Signer;
 use sha3::{Digest, Keccak256};
 use std::collections::HashMap;
+use std::convert::TryInto;
 
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_crypto::secp::{Generator, Privkey, Pubkey};
@@ -32,6 +33,7 @@ use lazy_static::lazy_static;
 use rand::prelude::{thread_rng, ThreadRng};
 use rand::seq::SliceRandom;
 use rand::Rng;
+use rand::RngCore;
 
 use sparse_merkle_tree::default_store::DefaultStore;
 use sparse_merkle_tree::traits::Hasher;
@@ -81,16 +83,33 @@ pub const ERROR_SUPPLY_AMOUNT: i8 = 91;
 pub const ERROR_BURN: i8 = 92;
 pub const ERROR_NO_INFO_CELL: i8 = 93;
 
+// https://github.com/bitcoin-core/secp256k1/blob/d373bf6d08c82ac5496bf8103698c9f54d8d99d2/include/secp256k1.h#L219
+pub const SECP256K1_TAG_PUBKEY_EVEN: u8 = 0x02;
+pub const SECP256K1_TAG_PUBKEY_ODD: u8 = 0x03;
+pub const SECP256K1_TAG_PUBKEY_UNCOMPRESSED: u8 = 0x04;
+pub const SECP256K1_TAG_PUBKEY_HYBRID_EVEN: u8 = 0x06;
+pub const SECP256K1_TAG_PUBKEY_HYBRID_ODD: u8 = 0x07;
+
+// Refer to https://en.bitcoin.it/wiki/BIP_0137
+// These values are used to denote the signature types of Bitcoin.
+// Each type corresponds to a distinct public key hash and a unique signature
+//      data header.
+pub const BITCOIN_V_TYPE_P2PKHUNCOMPRESSED: u8 = 27;
+pub const BITCOIN_V_TYPE_P2PKHCOMPRESSED: u8 = 31;
+pub const BITCOIN_V_TYPE_SEGWITP2SH: u8 = 35;
+pub const BITCOIN_V_TYPE_SEGWITBECH32: u8 = 39;
+
+pub const BTC_PREFIX: &str = "CKB (Bitcoin Layer-2) transaction: 0x";
+pub const COMMON_PREFIX: &str = "CKB transaction: 0x";
+
 lazy_static! {
     pub static ref OMNI_LOCK: Bytes = Bytes::from(&include_bytes!("../../../build/omni_lock")[..]);
-    // this binary from https://github.com/nervosnetwork/ckb-production-scripts
     pub static ref SIMPLE_UDT: Bytes =
         Bytes::from(&include_bytes!("../../../build/simple_udt")[..]);
     pub static ref SECP256K1_DATA_BIN: Bytes =
         Bytes::from(&include_bytes!("../../../build/secp256k1_data_20210801")[..]);
     pub static ref ALWAYS_SUCCESS: Bytes =
         Bytes::from(&include_bytes!("../../../build/always_success")[..]);
-    // this binary from https://github.com/nervosnetwork/ckb-production-scripts
     pub static ref VALIDATE_SIGNATURE_RSA: Bytes =
         Bytes::from(&include_bytes!("../../../build/validate_signature_rsa")[..]);
     pub static ref SMT_EXISTING: H256 = H256::from([
@@ -626,11 +645,20 @@ pub fn sign_tx_by_input_group(
                 });
                 blake2b.finalize(&mut message);
 
-                let message = if config.id.flags == IDENTITY_FLAGS_ETHEREUM {
-                    convert_keccak256_hash(&message)
+                println!("origin message: {:02x?}", message);
+
+                let message = if use_chain_confg(config.id.flags) {
+                    assert!(config.chain_config.is_some());
+                    config
+                        .chain_config
+                        .as_ref()
+                        .unwrap()
+                        .convert_message(&message)
                 } else {
                     CkbH256::from(message)
                 };
+
+                println!("sign message: {:02x?}", message.as_bytes().to_vec());
 
                 let witness_lock = if config.id.flags == IDENTITY_FLAGS_DL {
                     let (mut sig, pubkey) = if config.use_rsa {
@@ -671,6 +699,25 @@ pub fn sign_tx_by_input_group(
                         &identity,
                         None,
                     )
+                } else if use_chain_confg(config.id.flags) {
+                    let sig_bytes = config
+                        .chain_config
+                        .as_ref()
+                        .unwrap()
+                        .sign(&config.private_key, message);
+                    println!(
+                        "bitcoin sign(size: {}): {:02x?}",
+                        sig_bytes.len(),
+                        sig_bytes.to_vec()
+                    );
+                    gen_witness_lock(
+                        sig_bytes,
+                        config.use_rc,
+                        config.use_rc_identity,
+                        &proof_vec,
+                        &identity,
+                        None,
+                    )
                 } else {
                     let sig = config.private_key.sign_recoverable(&message).expect("sign");
                     let sig_bytes = Bytes::from(sig.serialize());
@@ -683,6 +730,12 @@ pub fn sign_tx_by_input_group(
                         None,
                     )
                 };
+
+                println!(
+                    "omni lock witness(size: {}): {:02x?}",
+                    witness_lock.len(),
+                    witness_lock.to_vec()
+                );
 
                 witness
                     .as_builder()
@@ -712,6 +765,11 @@ pub fn sign_tx_by_input_group(
 
 pub fn gen_tx(dummy: &mut DummyDataLoader, config: &mut TestConfig) -> TransactionView {
     let lock_args = config.gen_args();
+    println!(
+        "omni lock args(size: {}): {:02x?}",
+        lock_args.len(),
+        lock_args.to_vec()
+    );
     gen_tx_with_grouped_args(dummy, vec![(lock_args, 1)], config)
 }
 
@@ -973,7 +1031,12 @@ pub fn debug_printer(script: &Byte32, msg: &str) {
 
 pub const IDENTITY_FLAGS_PUBKEY_HASH: u8 = 0;
 pub const IDENTITY_FLAGS_ETHEREUM: u8 = 1;
+pub const IDENTITY_FLAGS_EOS: u8 = 2;
+pub const IDENTITY_FLAGS_TRON: u8 = 3;
+pub const IDENTITY_FLAGS_BITCOIN: u8 = 4;
+pub const IDENTITY_FLAGS_DOGECOIN: u8 = 5;
 pub const IDENTITY_FLAGS_MULTISIG: u8 = 6;
+pub const IDENTITY_FLAGS_ETHEREUM_DISPLAYING: u8 = 18;
 
 pub const IDENTITY_FLAGS_OWNER_LOCK: u8 = 0xFC;
 pub const IDENTITY_FLAGS_EXEC: u8 = 0xFD;
@@ -1088,6 +1151,264 @@ impl Default for MultisigTestConfig {
     }
 }
 
+pub trait ChainConfig {
+    fn get_pubkey_hash(&self, pubkey: &Pubkey) -> [u8; 20];
+    fn convert_message(&self, message: &[u8; 32]) -> CkbH256;
+    fn sign(&self, privkey: &Privkey, message: CkbH256) -> Bytes;
+}
+
+pub fn use_chain_confg(flags: u8) -> bool {
+    flags == IDENTITY_FLAGS_ETHEREUM
+        || flags == IDENTITY_FLAGS_EOS
+        || flags == IDENTITY_FLAGS_TRON
+        || flags == IDENTITY_FLAGS_BITCOIN
+        || flags == IDENTITY_FLAGS_DOGECOIN
+        || flags == IDENTITY_FLAGS_ETHEREUM_DISPLAYING
+}
+
+#[derive(Default)]
+pub struct EthereumConfig {
+    pub pubkey_err: bool,
+}
+
+impl ChainConfig for EthereumConfig {
+    fn get_pubkey_hash(&self, pubkey: &Pubkey) -> [u8; 20] {
+        keccak160(&pubkey.as_ref()[..]).to_vec().try_into().unwrap()
+    }
+
+    fn convert_message(&self, message: &[u8; 32]) -> CkbH256 {
+        convert_keccak256_hash(message)
+    }
+
+    fn sign(&self, privkey: &Privkey, message: CkbH256) -> Bytes {
+        let sig = privkey.sign_recoverable(&message).expect("sign");
+        Bytes::from(sig.serialize())
+    }
+}
+
+#[derive(Default)]
+pub struct EthereumDisplayConfig {
+    pub pubkey_err: bool,
+}
+
+impl ChainConfig for EthereumDisplayConfig {
+    fn get_pubkey_hash(&self, pubkey: &Pubkey) -> [u8; 20] {
+        keccak160(&pubkey.as_ref()[..]).to_vec().try_into().unwrap()
+    }
+
+    fn convert_message(&self, message: &[u8; 32]) -> CkbH256 {
+        let eth_prefix = b"\x19Ethereum Signed Message:\n";
+
+        let mut hasher = Keccak256::new();
+        hasher.update(eth_prefix);
+        hasher.update(Bytes::from(format!(
+            "{}",
+            COMMON_PREFIX.len() + message.len() * 2
+        )));
+        hasher.update(Bytes::from(COMMON_PREFIX));
+        hasher.update(hex::encode(message));
+        let r = hasher.finalize();
+        CkbH256::from_slice(r.as_slice()).expect("convert_keccak256_hash")
+    }
+
+    fn sign(&self, privkey: &Privkey, message: CkbH256) -> Bytes {
+        let sig = privkey.sign_recoverable(&message).expect("sign");
+        Bytes::from(sig.serialize())
+    }
+}
+
+pub struct BitcoinConfig {
+    pub sign_vtype: u8,
+    pub pubkey_err: bool,
+}
+
+impl Default for BitcoinConfig {
+    fn default() -> Self {
+        Self {
+            sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
+            pubkey_err: false,
+        }
+    }
+}
+
+impl ChainConfig for BitcoinConfig {
+    fn get_pubkey_hash(&self, pubkey: &Pubkey) -> [u8; 20] {
+        if self.pubkey_err {
+            let mut r = [0u8; 20];
+            thread_rng().fill_bytes(&mut r);
+            return r;
+        }
+        match self.sign_vtype {
+            BITCOIN_V_TYPE_P2PKHUNCOMPRESSED => {
+                let mut pk_data = Vec::<u8>::new();
+                pk_data.resize(65, 0);
+                pk_data[0] = SECP256K1_TAG_PUBKEY_UNCOMPRESSED;
+                pk_data[1..].copy_from_slice(pubkey.as_bytes());
+
+                let r = bitcoin_hash160(&pk_data);
+                println!("public key hash: {:02x?}", r);
+
+                r
+            }
+            BITCOIN_V_TYPE_P2PKHCOMPRESSED => bitcoin_hash160(&pubkey.serialize()),
+            BITCOIN_V_TYPE_SEGWITP2SH => {
+                // Ripemd160(Sha256([00, 20, Ripemd160(Sha256(Compressed Public key))]))
+
+                let mut buf = Vec::<u8>::new();
+                buf.resize(22, 0);
+                buf[0] = 0;
+                buf[1] = 20;
+                buf[2..].copy_from_slice(&bitcoin_hash160(&pubkey.serialize()));
+                bitcoin_hash160(&buf)
+            }
+            BITCOIN_V_TYPE_SEGWITBECH32 => bitcoin_hash160(&pubkey.serialize()),
+            _ => {
+                panic!("unknow sign_vtype")
+            }
+        }
+    }
+
+    fn convert_message(&self, message: &[u8; 32]) -> CkbH256 {
+        let message_magic = b"Bitcoin Signed Message:\n";
+        let msg_hex = hex::encode(message);
+        assert_eq!(msg_hex.len(), 64);
+
+        let mut temp2: BytesMut =
+            BytesMut::with_capacity(1 + message_magic.len() + 1 + BTC_PREFIX.len() + msg_hex.len());
+        temp2.put_u8(message_magic.len() as u8);
+        temp2.put(Bytes::from(message_magic.to_vec()));
+
+        temp2.put_u8(0x40 + BTC_PREFIX.len() as u8);
+
+        temp2.put(Bytes::from(format!(
+            "{}{}",
+            BTC_PREFIX,
+            hex::encode(message)
+        )));
+
+        let msg = calculate_sha256(&temp2.to_vec());
+        let msg = calculate_sha256(&msg);
+
+        CkbH256::from(msg)
+    }
+
+    fn sign(&self, privkey: &Privkey, message: CkbH256) -> Bytes {
+        let sign = privkey
+            .sign_recoverable(&message)
+            .expect("sign secp256k1")
+            .serialize();
+        let recid = sign[64];
+
+        let mark = recid + self.sign_vtype;
+
+        let mut ret = BytesMut::with_capacity(65);
+        ret.put_u8(mark);
+        ret.put(&sign[0..64]);
+        Bytes::from(ret)
+    }
+}
+
+#[derive(Default)]
+pub struct DogecoinConfig(pub BitcoinConfig);
+
+impl ChainConfig for DogecoinConfig {
+    fn get_pubkey_hash(&self, pubkey: &Pubkey) -> [u8; 20] {
+        self.0.get_pubkey_hash(pubkey)
+    }
+
+    fn convert_message(&self, message: &[u8; 32]) -> CkbH256 {
+        let message_magic = b"\x19Dogecoin Signed Message:\n\x40";
+        let msg_hex = hex::encode(message);
+        assert_eq!(msg_hex.len(), 64);
+
+        let mut temp2: BytesMut = BytesMut::with_capacity(message_magic.len() + msg_hex.len());
+        temp2.put(Bytes::from(message_magic.to_vec()));
+        temp2.put(Bytes::from(hex::encode(message)));
+
+        let msg = calculate_sha256(&temp2.to_vec());
+        let msg = calculate_sha256(&msg);
+        CkbH256::from(msg)
+    }
+
+    fn sign(&self, privkey: &Privkey, message: CkbH256) -> Bytes {
+        self.0.sign(privkey, message)
+    }
+}
+
+#[derive(Default)]
+pub struct EOSConfig(pub BitcoinConfig);
+
+impl ChainConfig for EOSConfig {
+    fn get_pubkey_hash(&self, pubkey: &Pubkey) -> [u8; 20] {
+        if self.0.pubkey_err {
+            let mut r = [0u8; 20];
+            thread_rng().fill_bytes(&mut r);
+            return r;
+        }
+        // EOS support
+        let buf = match self.0.sign_vtype {
+            BITCOIN_V_TYPE_P2PKHUNCOMPRESSED => {
+                let mut temp: BytesMut = BytesMut::with_capacity(65);
+                temp.put_u8(SECP256K1_TAG_PUBKEY_UNCOMPRESSED);
+                temp.put(Bytes::from(pubkey.as_bytes().to_vec()));
+                temp.freeze().to_vec()
+            }
+            BITCOIN_V_TYPE_P2PKHCOMPRESSED => pubkey.serialize(),
+            _ => {
+                panic!("unsupport")
+            }
+        };
+
+        ckb_hash::blake2b_256(buf)[..20].try_into().unwrap()
+    }
+
+    fn convert_message(&self, message: &[u8; 32]) -> CkbH256 {
+        CkbH256::from_slice(message).unwrap()
+    }
+
+    fn sign(&self, privkey: &Privkey, message: CkbH256) -> Bytes {
+        self.0.sign(privkey, message)
+    }
+}
+
+#[derive(Default)]
+pub struct TronConfig {
+    pub pubkey_err: bool,
+}
+
+impl ChainConfig for TronConfig {
+    fn get_pubkey_hash(&self, pubkey: &Pubkey) -> [u8; 20] {
+        if self.pubkey_err {
+            let mut r = [0u8; 20];
+            thread_rng().fill_bytes(&mut r);
+            return r;
+        }
+
+        let pubkey = pubkey.as_bytes();
+
+        let mut hasher = Keccak256::new();
+        hasher.update(&pubkey.to_vec());
+        let r = hasher.finalize().as_slice().to_vec();
+
+        r[12..].try_into().unwrap()
+    }
+
+    fn convert_message(&self, message: &[u8; 32]) -> CkbH256 {
+        let eth_prefix: &[u8; 24] = b"\x19TRON Signed Message:\n32";
+        let mut hasher = Keccak256::new();
+        hasher.update(eth_prefix);
+        hasher.update(message);
+        let r = hasher.finalize();
+        let rr = CkbH256::from_slice(r.as_slice()).expect("convert_keccak256_hash");
+        rr
+    }
+
+    fn sign(&self, privkey: &Privkey, message: CkbH256) -> Bytes {
+        let sig = privkey.sign_recoverable(&message).expect("sign");
+        Bytes::from(sig.serialize())
+    }
+}
+
 pub struct TestConfig {
     pub id: Identity,
     pub acp_config: Option<(u8, u8)>,
@@ -1127,6 +1448,8 @@ pub struct TestConfig {
 
     pub running_script: Script,
     pub leading_witness_count: usize,
+
+    pub chain_config: Option<Box<dyn ChainConfig>>,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -1163,14 +1486,12 @@ const SUPPLY_MASK: u8 = 8;
 
 impl TestConfig {
     pub fn new(flags: u8, use_rc: bool) -> TestConfig {
-        let private_key = Generator::random_privkey();
+        let private_key: Privkey = Generator::random_privkey();
         let pubkey = private_key.pubkey().expect("pubkey");
         let pubkey_hash = blake160(&pubkey.serialize());
 
         let blake160 = if flags == IDENTITY_FLAGS_PUBKEY_HASH {
             pubkey_hash
-        } else if flags == IDENTITY_FLAGS_ETHEREUM {
-            keccak160(&pubkey.as_ref()[..])
         } else {
             Bytes::from(&[0; 20][..])
         };
@@ -1225,6 +1546,8 @@ impl TestConfig {
             info_cell: Default::default(),
             running_script: Default::default(),
             leading_witness_count: 0,
+
+            chain_config: None,
         }
     }
 
@@ -1264,6 +1587,12 @@ impl TestConfig {
 
     pub fn set_omni_identity(&mut self, used: bool) {
         self.use_rc_identity = used;
+    }
+
+    pub fn set_chain_config(&mut self, config: Box<dyn ChainConfig>) {
+        let pkhash = config.get_pubkey_hash(&self.pubkey);
+        self.chain_config = Some(config);
+        self.id.blake160 = Bytes::from(pkhash.to_vec());
     }
 
     pub fn gen_args(&self) -> Bytes {
@@ -1688,4 +2017,26 @@ pub fn gen_tx_env() -> TxVerifyEnv {
         .epoch(epoch.pack())
         .build();
     TxVerifyEnv::new_commit(&header)
+}
+
+pub fn calculate_sha256(buf: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+
+    let mut c = Sha256::new();
+    c.update(buf);
+    c.finalize().into()
+}
+
+pub fn calculate_ripemd160(buf: &[u8]) -> [u8; 20] {
+    use ripemd::{Digest, Ripemd160};
+
+    let mut hasher = Ripemd160::new();
+    hasher.update(buf);
+    let buf = hasher.finalize()[..].to_vec();
+
+    buf.try_into().unwrap()
+}
+
+pub fn bitcoin_hash160(buf: &[u8]) -> [u8; 20] {
+    calculate_ripemd160(&calculate_sha256(buf))
 }
