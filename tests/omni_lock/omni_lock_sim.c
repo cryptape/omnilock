@@ -573,7 +573,7 @@ UTEST(exec, random) {
   int err = 0;
   CkbBinaryArgsType bin = {0};
   ckb_exec_reset(&bin);
-  for (int i = 0; i < 64; i++) {
+  for (int i = 1; i < 64; i++) {
     uint32_t len = i;
     uint8_t buff[len];
     for (int j = 0; j < len; j++) {

@@ -8,35 +8,11 @@ use std::{
     path::Path,
 };
 
-const PATH_PREFIX: &str = "build/";
+const PATH_PREFIX: &str = "../../build/";
 const BUF_SIZE: usize = 8 * 1024;
 const CKB_HASH_PERSONALIZATION: &[u8] = b"ckb-default-hash";
 
 const BINARIES: &[(&str, &str)] = &[
-    (
-        "secp256k1_data",
-        "9799bee251b975b82c45a02154ce28cec89c5853ecc14d12b7b8cccfc19e0af4",
-    ),
-    (
-        "anyone_can_pay",
-        "cd69ba816f7471e59110058aa37387c362ed9a240cd178f7bb1ecee386cb31e6",
-    ),
-    (
-        "simple_udt",
-        "e1e354d6d643ad42724d40967e334984534e0367405c5ae42a9d7d63d77df419",
-    ),
-    (
-        "validate_signature_rsa",
-        "a638f65f650bdac13bf91134ed7eec8feded1dac5e6add9e26cf658b2a693066",
-    ),
-    (
-        "xudt_rce",
-        "50bd8d6680b8b9cf98b73f3c08faf8b2a21914311954118ad6609be6e78a1b95",
-    ),
-    (
-        "rce_validator",
-        "d9476d96e0f5d41eca88bbc5e8c819ac38592a33285a4828a58d17873f278b3c",
-    ),
     (
         "omni_lock",
         "86ea7ee58a0ecacfb1f7f2675a06d96223e0597dfe06a2474f9c06a72a7ccabc",

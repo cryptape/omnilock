@@ -83,12 +83,14 @@ pub const ERROR_NO_INFO_CELL: i8 = 93;
 
 lazy_static! {
     pub static ref OMNI_LOCK: Bytes = Bytes::from(&include_bytes!("../../../build/omni_lock")[..]);
+    // this binary from https://github.com/nervosnetwork/ckb-production-scripts
     pub static ref SIMPLE_UDT: Bytes =
         Bytes::from(&include_bytes!("../../../build/simple_udt")[..]);
     pub static ref SECP256K1_DATA_BIN: Bytes =
         Bytes::from(&include_bytes!("../../../build/secp256k1_data_20210801")[..]);
     pub static ref ALWAYS_SUCCESS: Bytes =
         Bytes::from(&include_bytes!("../../../build/always_success")[..]);
+    // this binary from https://github.com/nervosnetwork/ckb-production-scripts
     pub static ref VALIDATE_SIGNATURE_RSA: Bytes =
         Bytes::from(&include_bytes!("../../../build/validate_signature_rsa")[..]);
     pub static ref SMT_EXISTING: H256 = H256::from([

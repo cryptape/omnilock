@@ -2,8 +2,9 @@ cmake_minimum_required(VERSION 3.12)
 project(omni_lock_simulator C)
 
 set(CMAKE_C_STANDARD 11)
+
 # uncomment it for sanitize
-#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fsanitize=undefined")
+# set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fsanitize=undefined")
 
 # uncomment it for coverage test
 #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
@@ -14,14 +15,15 @@ set(CMAKE_C_STANDARD 11)
 add_definitions(-D__SHARED_LIBRARY__)
 add_definitions(-DCKB_DECLARATION_ONLY)
 add_definitions(-DCKB_USE_SIM)
+add_definitions(-DSECP256K1_BUILD)
 
 include_directories(../../tests/omni_lock)
 include_directories(../../deps/ckb-c-stdlib-20210801)
 include_directories(../../deps/sparse-merkle-tree/c)
 # include_directories(deps/ckb-c-stdlib/libc)
 # on simulator, we don't use own "libc"
-include_directories(../../deps/secp256k1/src)
-include_directories(../../deps/secp256k1)
+include_directories(../../deps/secp256k1-20210801/src)
+include_directories(../../deps/secp256k1-20210801)
 include_directories(../../deps/ckb-c-stdlib-20210801/molecule)
 include_directories(../../c)
 include_directories(../../build)
