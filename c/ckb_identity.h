@@ -25,7 +25,11 @@
 #define MAX_PREIMAGE_SIZE 1024
 #define MESSAGE_HEX_LEN 64
 
+<<<<<<< HEAD
 const char BTC_PREFIX[] = "CKB (Bitcoin Layer) transaction: 0x";
+=======
+const char BTC_PREFIX[] = "CKB (Bitcoin Layer-2) transaction: 0x";
+>>>>>>> bcd9b58 (Add missing auth id(0x02~0x05))
 // BTC_PREFIX_LEN = 35
 const size_t BTC_PREFIX_LEN = sizeof(BTC_PREFIX) - 1;
 
