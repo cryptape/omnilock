@@ -27,7 +27,6 @@ int ckb_exit(signed char);
 // An upgraded version is provided.
 #include "secp256k1_helper_20210801.h"
 #include "ckb_swappable_signatures.h"
-#include "validate_signature_rsa.h"
 
 #include "ckb_identity.h"
 #include "ckb_smt.h"

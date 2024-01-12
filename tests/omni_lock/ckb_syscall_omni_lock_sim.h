@@ -664,7 +664,7 @@ int ckb_load_cell_data(void* addr, uint64_t* len, size_t offset, size_t index,
                        size_t source) {
   if (source == CKB_SOURCE_CELL_DEP && index == SPECIAL_SECP256K1_INDEX) {
     ASSERT(*len == 1048576);
-    FILE* input = fopen("build/secp256k1_data", "rb");
+    FILE* input = fopen("build/secp256k1_data_20210801", "rb");
     size_t read_item = fread(addr, *len, 1, input);
     ASSERT(read_item == 1);
 
@@ -785,7 +785,7 @@ int ckb_checked_load_cell_by_field(void* addr, uint64_t* len, size_t offset,
 
 int ckb_look_for_dep_with_hash2(const uint8_t* code_hash, uint8_t hash_type,
                                 size_t* index) {
-  *index = *(uint16_t*)code_hash;
+  memcpy(index, code_hash, 2);
   return 0;
 }
 

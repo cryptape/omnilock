@@ -1,27 +1,11 @@
-[submodule "deps/secp256k1"]
-	path = deps/secp256k1
-	url = https://github.com/nervosnetwork/secp256k1
-[submodule "deps/ckb-c-std-lib"]
-	path = deps/ckb-c-std-lib
-	url = https://github.com/nervosnetwork/ckb-c-stdlib.git
 [submodule "deps/ckb-c-stdlib-20210801"]
 	path = deps/ckb-c-stdlib-20210801
-	url = https://github.com/nervosnetwork/ckb-c-stdlib.git
-	branch = master
-[submodule "deps/ckb-c-stdlib-20210713"]
-	path = deps/ckb-c-stdlib-20210713
 	url = https://github.com/nervosnetwork/ckb-c-stdlib.git
 	branch = master
 [submodule "deps/sparse-merkle-tree"]
 	path = deps/sparse-merkle-tree
 	url = https://github.com/nervosnetwork/sparse-merkle-tree.git
 	branch = master
-[submodule "deps/mbedtls"]
-	path = deps/mbedtls
-	url = https://github.com/nervosnetwork/mbedtls.git
-[submodule "deps/ckb-c-stdlib-20210413"]
-	path = deps/ckb-c-stdlib-20210413
-	url = https://github.com/nervosnetwork/ckb-c-stdlib.git
 [submodule "deps/secp256k1-20210801"]
 	path = deps/secp256k1-20210801
 	url = https://github.com/nervosnetwork/secp256k1.git
