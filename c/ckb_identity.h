@@ -25,11 +25,7 @@
 #define MAX_PREIMAGE_SIZE 1024
 #define MESSAGE_HEX_LEN 64
 
-<<<<<<< HEAD
 const char BTC_PREFIX[] = "CKB (Bitcoin Layer) transaction: 0x";
-=======
-const char BTC_PREFIX[] = "CKB (Bitcoin Layer-2) transaction: 0x";
->>>>>>> bcd9b58 (Add missing auth id(0x02~0x05))
 // BTC_PREFIX_LEN = 35
 const size_t BTC_PREFIX_LEN = sizeof(BTC_PREFIX) - 1;
 
@@ -86,6 +82,9 @@ typedef int (*validate_signature_t)(void *prefilled_data, const uint8_t *sig,
 
 typedef int (*convert_msg_t)(const uint8_t *msg, size_t msg_len,
                              uint8_t *new_msg, size_t new_msg_len);
+
+bool g_cobuild_enabled = false;
+uint8_t g_cobuild_signing_message_hash[32];
 
 static void bin_to_hex(const uint8_t *source, uint8_t *dest, size_t len) {
   const static uint8_t HEX_TABLE[] = {'0', '1', '2', '3', '4', '5', '6', '7',
@@ -379,6 +378,11 @@ int validate_signature_eos(void *prefilled_data, const uint8_t *sig,
 }
 
 int generate_sighash_all(uint8_t *msg, size_t msg_len) {
+  if (g_cobuild_enabled) {
+    memcpy(msg, g_cobuild_signing_message_hash, BLAKE2B_BLOCK_SIZE);
+    return 0;
+  }
+
   int ret;
   uint64_t len = 0;
   unsigned char temp[MAX_WITNESS_SIZE];

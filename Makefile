@@ -3,12 +3,15 @@ CC := $(TARGET)-gcc
 LD := $(TARGET)-gcc
 OBJCOPY := $(TARGET)-objcopy
 CFLAGS := -fPIC -O3 -fno-builtin-printf -fno-builtin-memcmp -nostdinc -nostdlib -nostartfiles -fvisibility=hidden -fdata-sections -ffunction-sections -I deps/secp256k1/src -I deps/secp256k1 -I deps/ckb-c-std-lib -I deps/ckb-c-std-lib/libc -I deps/ckb-c-std-lib/molecule -I c -I build -Wall -Werror -Wno-nonnull -Wno-nonnull-compare -Wno-unused-function -g
-LDFLAGS := -Wl,-static -fdata-sections -ffunction-sections -Wl,--gc-sections
+LDFLAGS := -nostdlib -nostartfiles -fno-builtin -Wl,-static -Wl,--gc-sections
 SECP256K1_SRC_20210801 := deps/secp256k1-20210801/src/ecmult_static_pre_context.h
 
 
 OMNI_LOCK_CFLAGS :=$(subst ckb-c-std-lib,ckb-c-stdlib-20210801,$(CFLAGS)) -I deps/sparse-merkle-tree/c
 OMNI_LOCK_CFLAGS := $(subst secp256k1,secp256k1-20210801,$(OMNI_LOCK_CFLAGS))
+# enable log
+# OMNI_LOCK_CFLAGS += -DCKB_C_STDLIB_PRINTF -DCKB_C_STDLIB_PRINTF_BUFFER_SIZE=1024
+
 
 PROTOCOL_HEADER := c/blockchain.h
 PROTOCOL_SCHEMA := c/blockchain.mol
@@ -54,7 +57,8 @@ ${PROTOCOL_SCHEMA}:
 	curl -L -o $@ ${PROTOCOL_URL}
 
 ALL_C_SOURCE := $(wildcard c/omni_lock.c c/omni_lock_acp.h c/omni_lock_time_lock.h \
-	tests/omni_lock/omni_lock_sim.c tests/omni_lock/ckb_syscall_omni_lock_sim.h tests/omni_lock/omni_lock_supply.h)
+	tests/omni_lock/omni_lock_sim.c tests/omni_lock/ckb_syscall_omni_lock_sim.h tests/omni_lock/omni_lock_supply.h\
+	c/blake2b_decl_only.h c/cobuild.h c/cobuild.c)
 
 fmt:
 	docker run --rm -v `pwd`:/code ${CLANG_FORMAT_DOCKER} bash -c "cd code && clang-format -i -style=Google $(ALL_C_SOURCE)"
@@ -62,6 +66,7 @@ fmt:
 
 mol:
 	make omni_lock_mol
+	make cobuild_mol
 
 c/xudt_rce_mol.h: c/xudt_rce.mol
 	${MOLC} --language c --schema-file $< > $@
@@ -76,17 +81,27 @@ omni_lock_mol:
 	${MOLC} --language - --schema-file c/omni_lock.mol --format json > build/omni_lock_mol2.json
 	moleculec-c2 --input build/omni_lock_mol2.json | clang-format -style=Google > c/omni_lock_mol2.h
 
-build/omni_lock: c/omni_lock.c c/omni_lock_supply.h c/omni_lock_acp.h c/secp256k1_lock.h build/secp256k1_data_info_20210801.h $(SECP256K1_SRC_20210801) c/ckb_identity.h
-	$(CC) $(OMNI_LOCK_CFLAGS) $(LDFLAGS) -o $@ $<
+build/cobuild.o: c/cobuild.c c/cobuild.h
+	$(CC) -c $(OMNI_LOCK_CFLAGS) -o $@ $<
+
+build/omni_lock.o: c/omni_lock.c c/omni_lock_supply.h c/omni_lock_acp.h c/secp256k1_lock.h build/secp256k1_data_info_20210801.h $(SECP256K1_SRC_20210801) c/ckb_identity.h
+	$(CC) -c $(OMNI_LOCK_CFLAGS) -o $@ $<
+
+build/omni_lock: build/omni_lock.o build/cobuild.o 
+	$(CC) $(LDFLAGS) -o $@ $^
 	cp $@ $@.debug
 	$(OBJCOPY) --strip-debug --strip-all $@
 
+cobuild_mol:
+	${MOLC} --language rust --schema-file c/basic.mol | rustfmt > tests/omni_lock_rust/src/schemas/basic.rs
+	${MOLC} --language rust --schema-file c/top_level.mol | rustfmt > tests/omni_lock_rust/src/schemas/top_level.rs
 
 clean:
 	rm -rf build/secp256k1_data_info_20210801.h build/dump_secp256k1_data_20210801
 	rm -rf build/secp256k1_data_20210801
 	rm -rf build/*.debug
 	rm -f build/omni_lock
+	rm -f build/*.o
 	cd deps/secp256k1-20210801 && [ -f "Makefile" ] && make clean
 
 install-tools:

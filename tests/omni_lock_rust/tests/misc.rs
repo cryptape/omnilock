@@ -1,3 +1,4 @@
+use omni_lock_test::schemas::top_level::WitnessLayout;
 use openssl::hash::MessageDigest;
 use openssl::pkey::{PKey, Private, Public};
 use openssl::rsa::Rsa;
@@ -6,18 +7,16 @@ use sha3::{Digest, Keccak256};
 use std::collections::HashMap;
 use std::convert::TryInto;
 
-use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_crypto::secp::{Generator, Privkey, Pubkey};
 use ckb_error::Error;
 use ckb_hash::{Blake2b, Blake2bBuilder};
 use ckb_script::TxVerifyEnv;
-use ckb_traits::{CellDataProvider, HeaderProvider};
+use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::bytes::{BufMut, BytesMut};
 use ckb_types::{
     bytes::Bytes,
     core::{
         cell::{CellMeta, CellMetaBuilder, ResolvedTransaction},
-        hardfork::HardForkSwitch,
         Capacity, DepType, EpochNumberWithFraction, HeaderView, ScriptHashType, TransactionBuilder,
         TransactionView,
     },
@@ -39,12 +38,17 @@ use sparse_merkle_tree::default_store::DefaultStore;
 use sparse_merkle_tree::traits::Hasher;
 use sparse_merkle_tree::{SparseMerkleTree, H256};
 
+use ckb_chain_spec::consensus::ConsensusBuilder;
+use ckb_script::TransactionScriptsVerifier;
+use ckb_types::core::hardfork::HardForks;
 use omni_lock_test::omni_lock;
 use omni_lock_test::omni_lock::OmniLockWitnessLock;
+use omni_lock_test::schemas::basic::{Message, SighashAll, SighashAllOnly};
 use omni_lock_test::xudt_rce_mol::{
     RCCellVecBuilder, RCDataBuilder, RCDataUnion, RCRuleBuilder, SmtProofBuilder,
     SmtProofEntryBuilder, SmtProofEntryVec, SmtProofEntryVecBuilder,
 };
+use std::sync::Arc;
 
 // on(1): white list
 // off(0): black list
@@ -77,11 +81,16 @@ pub const ERROR_RCE_EMERGENCY_HALT: i8 = 54;
 pub const ERROR_RSA_VERIFY_FAILED: i8 = 42;
 pub const ERROR_INCORRECT_SINCE_VALUE: i8 = -24;
 pub const ERROR_ISO97962_INVALID_ARG9: i8 = 61;
+pub const ERROR_MOL2_ERR_OVERFLOW: i8 = 8;
 // sudt supply errors
 pub const ERROR_EXCEED_SUPPLY: i8 = 90;
 pub const ERROR_SUPPLY_AMOUNT: i8 = 91;
 pub const ERROR_BURN: i8 = 92;
 pub const ERROR_NO_INFO_CELL: i8 = 93;
+// cobuild
+pub const ERROR_COBUILD_MOL2_ERR_DATA: i8 = 0x07;
+pub const ERROR_SIGHASHALL_DUP: i8 = 113;
+pub const MOL2_ERR_OVERFLOW: i8 = 8; // parse witnesses error
 
 // https://github.com/bitcoin-core/secp256k1/blob/d373bf6d08c82ac5496bf8103698c9f54d8d99d2/include/secp256k1.h#L219
 pub const SECP256K1_TAG_PUBKEY_EVEN: u8 = 0x02;
@@ -374,7 +383,7 @@ fn build_rc_rule(smt_root: &[u8; 32], is_black: bool, is_emergency: bool) -> Byt
     res.as_bytes()
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DummyDataLoader {
     pub cells: HashMap<OutPoint, (CellOutput, ckb_types::bytes::Bytes)>,
 }
@@ -411,6 +420,12 @@ impl CellDataProvider for DummyDataLoader {
 
 impl HeaderProvider for DummyDataLoader {
     fn get_header(&self, _hash: &Byte32) -> Option<HeaderView> {
+        None
+    }
+}
+
+impl ExtensionProvider for DummyDataLoader {
+    fn get_block_extension(&self, _hash: &packed::Byte32) -> Option<packed::Bytes> {
         None
     }
 }
@@ -609,44 +624,47 @@ pub fn sign_tx_by_input_group(
     let tx_hash = tx.hash();
     let mut preimage_hash: Bytes = Default::default();
 
+    let message = if config.cobuild_enabled {
+        cobuild_generate_signing_message_hash(&config.cobuild_message, dummy, &tx)
+    } else {
+        let mut blake2b = ckb_hash::new_blake2b();
+        let mut message = [0u8; 32];
+        blake2b.update(&tx_hash.raw_data());
+        // digest the first witness
+        let witness = WitnessArgs::new_unchecked(tx.witnesses().get(begin_index).unwrap().unpack());
+        let zero_lock = gen_zero_witness_lock(
+            config.use_rc,
+            config.use_rc_identity,
+            &proof_vec,
+            &identity,
+            config.sig_len,
+            config.preimage_len,
+        );
+
+        let witness_for_digest = witness
+            .clone()
+            .as_builder()
+            .lock(Some(zero_lock).pack())
+            .build();
+        let witness_len = witness_for_digest.as_bytes().len() as u64;
+        blake2b.update(&witness_len.to_le_bytes());
+        blake2b.update(&witness_for_digest.as_bytes());
+        ((begin_index + 1)..(begin_index + len)).for_each(|n| {
+            let witness = tx.witnesses().get(n).unwrap();
+            let witness_len = witness.raw_data().len() as u64;
+            blake2b.update(&witness_len.to_le_bytes());
+            blake2b.update(&witness.raw_data());
+        });
+        blake2b.finalize(&mut message);
+        message
+    };
+    println!("origin message: {:02x?}", message);
     let mut signed_witnesses: Vec<packed::Bytes> = tx
         .inputs()
         .into_iter()
         .enumerate()
         .map(|(i, _)| {
             if i == begin_index {
-                let mut blake2b = ckb_hash::new_blake2b();
-                let mut message = [0u8; 32];
-                blake2b.update(&tx_hash.raw_data());
-                // digest the first witness
-                let witness = WitnessArgs::new_unchecked(tx.witnesses().get(i).unwrap().unpack());
-                let zero_lock = gen_zero_witness_lock(
-                    config.use_rc,
-                    config.use_rc_identity,
-                    &proof_vec,
-                    &identity,
-                    config.sig_len,
-                    config.preimage_len,
-                );
-
-                let witness_for_digest = witness
-                    .clone()
-                    .as_builder()
-                    .lock(Some(zero_lock).pack())
-                    .build();
-                let witness_len = witness_for_digest.as_bytes().len() as u64;
-                blake2b.update(&witness_len.to_le_bytes());
-                blake2b.update(&witness_for_digest.as_bytes());
-                ((i + 1)..(i + len)).for_each(|n| {
-                    let witness = tx.witnesses().get(n).unwrap();
-                    let witness_len = witness.raw_data().len() as u64;
-                    blake2b.update(&witness_len.to_le_bytes());
-                    blake2b.update(&witness.raw_data());
-                });
-                blake2b.finalize(&mut message);
-
-                println!("origin message: {:02x?}", message);
-
                 let message = if use_chain_confg(config.id.flags) {
                     assert!(config.chain_config.is_some());
                     config
@@ -657,9 +675,7 @@ pub fn sign_tx_by_input_group(
                 } else {
                     CkbH256::from(message)
                 };
-
                 println!("sign message: {:02x?}", message.as_bytes().to_vec());
-
                 let witness_lock = if config.id.flags == IDENTITY_FLAGS_DL {
                     let (mut sig, pubkey) = if config.use_rsa {
                         rsa_sign(message.as_bytes(), &config.rsa_private_key)
@@ -737,12 +753,52 @@ pub fn sign_tx_by_input_group(
                     witness_lock.to_vec()
                 );
 
-                witness
-                    .as_builder()
-                    .lock(Some(witness_lock).pack())
-                    .build()
-                    .as_bytes()
-                    .pack()
+                if config.cobuild_enabled {
+                    match &config.cobuild_message {
+                        Some(msg) => {
+                            let sighash_all = SighashAll::new_builder()
+                                .message(msg.clone())
+                                .seal(witness_lock.pack())
+                                .build();
+                            let sighash_all = WitnessLayout::new_builder().set(sighash_all).build();
+                            let sighash_all = sighash_all.as_bytes();
+                            println!(
+                                "sighash_all with enum id(size: {}): {:02x?}",
+                                sighash_all.len(),
+                                sighash_all.as_ref()
+                            );
+                            let res = sighash_all.pack();
+                            println!("res(size: {}): {:02x?}", res.len(), res.as_bytes().as_ref());
+                            res
+                        }
+                        None => {
+                            let sighash_all_only = SighashAllOnly::new_builder()
+                                .seal(witness_lock.pack())
+                                .build();
+                            let sighash_all_only =
+                                WitnessLayout::new_builder().set(sighash_all_only).build();
+                            let sighash_all_only = sighash_all_only.as_bytes();
+                            println!(
+                                "sighash_all_only with enum id(size: {}): {:02x?}",
+                                sighash_all_only.len(),
+                                sighash_all_only.as_ref()
+                            );
+                            let res = sighash_all_only.pack();
+                            println!("res(size: {}): {:02x?}", res.len(), res.as_bytes().as_ref());
+                            res
+                        }
+                    }
+                } else {
+                    let witness = WitnessArgs::new_unchecked(
+                        tx.witnesses().get(begin_index).unwrap().unpack(),
+                    );
+                    witness
+                        .as_builder()
+                        .lock(Some(witness_lock).pack())
+                        .build()
+                        .as_bytes()
+                        .pack()
+                }
             } else {
                 tx.witnesses().get(i).unwrap_or_default()
             }
@@ -757,6 +813,16 @@ pub fn sign_tx_by_input_group(
     if preimage_hash.len() == 20 {
         write_back_preimage_hash(dummy, IDENTITY_FLAGS_DL, preimage_hash);
     }
+
+    match &config.custom_extension_witnesses_beginning {
+        Some(ws) => {
+            let mut ws: Vec<ckb_types::packed::Bytes> = ws.iter().map(|f| f.pack()).collect();
+            ws.extend_from_slice(&signed_witnesses);
+            signed_witnesses = ws;
+        }
+        _ => {}
+    }
+
     // calculate message
     tx.as_advanced_builder()
         .set_witnesses(signed_witnesses)
@@ -955,6 +1021,14 @@ pub fn gen_tx_with_grouped_args(
         }
     }
 
+    match &config.custom_extension_witnesses {
+        Some(ws) => {
+            for w in ws {
+                tx_builder = tx_builder.witness(w.pack());
+            }
+        }
+        _ => {}
+    };
     tx_builder.build()
 }
 
@@ -1450,6 +1524,10 @@ pub struct TestConfig {
     pub leading_witness_count: usize,
 
     pub chain_config: Option<Box<dyn ChainConfig>>,
+    pub cobuild_enabled: bool,
+    pub cobuild_message: Option<Message>,
+    pub custom_extension_witnesses: Option<Vec<Bytes>>,
+    pub custom_extension_witnesses_beginning: Option<Vec<Bytes>>,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -1548,6 +1626,10 @@ impl TestConfig {
             leading_witness_count: 0,
 
             chain_config: None,
+            cobuild_enabled: false,
+            cobuild_message: Some(Message::default()),
+            custom_extension_witnesses: None,
+            custom_extension_witnesses_beginning: None,
         }
     }
 
@@ -2000,17 +2082,6 @@ pub fn assert_script_error(err: Error, err_code: i8) {
     );
 }
 
-pub fn gen_consensus() -> Consensus {
-    let hardfork_switch = HardForkSwitch::new_without_any_enabled()
-        .as_builder()
-        .rfc_0232(200)
-        .build()
-        .unwrap();
-    ConsensusBuilder::default()
-        .hardfork_switch(hardfork_switch)
-        .build()
-}
-
 pub fn gen_tx_env() -> TxVerifyEnv {
     let epoch = EpochNumberWithFraction::new(300, 0, 1);
     let header = HeaderView::new_advanced_builder()
@@ -2039,4 +2110,75 @@ pub fn calculate_ripemd160(buf: &[u8]) -> [u8; 20] {
 
 pub fn bitcoin_hash160(buf: &[u8]) -> [u8; 20] {
     calculate_ripemd160(&calculate_sha256(buf))
+}
+
+pub fn verify_tx(
+    resolved_tx: ResolvedTransaction,
+    data_loader: DummyDataLoader,
+) -> TransactionScriptsVerifier<DummyDataLoader> {
+    let hard_fork = HardForks::new_mirana();
+    let consensus = ConsensusBuilder::default()
+        .hardfork_switch(hard_fork)
+        .build();
+    TransactionScriptsVerifier::new(
+        Arc::new(resolved_tx),
+        data_loader.clone(),
+        Arc::new(consensus),
+        Arc::new(TxVerifyEnv::new_commit(
+            &HeaderView::new_advanced_builder().build(),
+        )),
+    )
+}
+
+#[test]
+fn test_gen_sign_msg() {
+    // generate_signing_message_hash(H256::from([1u8;32]), tx);
+}
+
+pub fn cobuild_generate_signing_message_hash(
+    message: &Option<Message>,
+    data_loader: &mut DummyDataLoader,
+    tx: &TransactionView,
+) -> [u8; 32] {
+    let mut count = 0;
+    // message
+    let mut hasher = match message {
+        Some(m) => {
+            let mut hasher = omni_lock_test::blake2b::new_sighash_all_blake2b();
+            hasher.update(m.as_slice());
+            count += m.as_slice().len();
+            hasher
+        }
+        None => omni_lock_test::blake2b::new_sighash_all_only_blake2b(),
+    };
+    // tx hash
+    hasher.update(tx.hash().as_slice());
+    count += 32;
+    // inputs cell and data
+    let inputs_len = tx.inputs().len();
+    for i in 0..inputs_len {
+        let input_cell = tx.inputs().get(i).unwrap();
+        hasher.update(&input_cell.as_slice());
+        count += input_cell.as_slice().len();
+        let input_cell_out_point = input_cell.previous_output();
+        let (_, input_cell_data) = data_loader.cells.get(&input_cell_out_point).unwrap();
+        hasher.update(&(input_cell_data.len() as u32).to_le_bytes());
+        count += 4;
+        hasher.update(input_cell_data);
+        count += input_cell_data.len();
+    }
+    // extra witnesses
+    for witness in tx.witnesses().into_iter().skip(inputs_len) {
+        hasher.update(&(witness.len() as u32).to_le_bytes());
+        count += 4;
+        hasher.update(&witness.raw_data());
+        count += witness.raw_data().len();
+    }
+    println!(
+        "cobuild_generate_signing_message_hash totally hashed {} bytes",
+        count
+    );
+    let mut result = [0u8; 32];
+    hasher.finalize(&mut result);
+    result
 }

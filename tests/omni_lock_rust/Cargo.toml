@@ -8,33 +8,25 @@ edition = "2018"
 
 [dependencies]
 blake2b-rs = "0.1"
-ckb-crypto = "0.100.0-rc2"
-ckb-error = "0.100.0-rc2"
-ckb-hash = "0.100.0-rc2"
-ckb-script = "0.100.0-rc2"
-ckb-traits = "0.100.0-rc2"
-ckb-types = "0.100.0-rc2"
-ckb-chain-spec = "0.100.0-rc2"
-# ckb-crypto = "0.40.0"
-# ckb-error = "0.40.0"
-# ckb-hash = "0.40.0"
-# ckb-script = "0.40.0"
-# ckb-traits = "0.40.0"
-# ckb-types = "0.40.0"
-# ckb-vm = "=0.19.3"
+ckb-crypto = "0.113.0"
+ckb-error = "0.113.0"
+ckb-hash = "0.113.0"
+ckb-script = "0.113.0"
+ckb-traits = "0.113.0"
+ckb-types = "0.113.0"
+ckb-chain-spec = "0.113.0"
+ckb-vm = "0.24.6"
+ckb-vm-debug-utils = { version = "0.113.0", features = ["stdio"]}
+
 lazy_static = "1.3.0"
 rand = "0.6.5"
 sparse-merkle-tree = { git = "https://github.com/nervosnetwork/sparse-merkle-tree.git", rev = "2dce546"}
 openssl = "0.10.4"
 sha3 = "0.9.1"
-ckb-vm-debug-utils = { git = "https://github.com/nervosnetwork/ckb-vm-debug-utils.git", rev = "f72995f" }
 gdb-remote-protocol = { git = "https://github.com/luser/rust-gdb-remote-protocol", rev = "565ab0c" }
-ckb-vm = { version = "=0.20.0-rc2", features = ["detect-asm"] }
 ripemd = "0.1.3"
 sha2 = "0.10.6"
 hex = "0.4.3"
-
-[build-dependencies]
-includedir_codegen = "0.5.0"
-blake2b-rs = "0.1.5"
-faster-hex = "0.3"
+faster-hex = "0.9.0"
+molecule = "0.7.5"
+blake2b-ref = "0.3.1"

@@ -16,6 +16,11 @@ void debug_print_hex(const char* prefix, const uint8_t* buf, size_t length) {
   printf("\n");
 }
 
+int ckb_parse_message(uint8_t* signing_message_hash, mol2_cursor_t* seal) {
+  // not cobuild
+  return 1;
+}
+
 /* hex2bin modified from
  * https://chromium.googlesource.com/chromium/deps/xz/+/77022065014d48cf51d83322264ab4836fd175ec/debug/hex2bin.c
  */

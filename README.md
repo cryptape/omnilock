@@ -19,3 +19,4 @@ cd tests/omni_lock_rust && cargo test
 ## Deployment
 
 See [RFC](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0042-omnilock/0042-omnilock.md)
+

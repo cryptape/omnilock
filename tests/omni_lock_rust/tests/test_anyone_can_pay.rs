@@ -17,9 +17,9 @@ use rand::{thread_rng, Rng, SeedableRng};
 use misc::{
     assert_script_error, blake160, build_always_success_script, build_omni_lock_script,
     build_resolved_tx, debug_printer, gen_tx, gen_tx_with_grouped_args, gen_witness_lock, sign_tx,
-    sign_tx_by_input_group, sign_tx_hash, DummyDataLoader, TestConfig, TestScheme, ALWAYS_SUCCESS,
-    ERROR_DUPLICATED_INPUTS, ERROR_DUPLICATED_OUTPUTS, ERROR_ENCODING, ERROR_NO_PAIR,
-    ERROR_OUTPUT_AMOUNT_NOT_ENOUGH, ERROR_PUBKEY_BLAKE160_HASH, ERROR_WITNESS_SIZE,
+    sign_tx_by_input_group, sign_tx_hash, verify_tx, DummyDataLoader, TestConfig, TestScheme,
+    ALWAYS_SUCCESS, ERROR_DUPLICATED_INPUTS, ERROR_DUPLICATED_OUTPUTS, ERROR_ENCODING,
+    ERROR_NO_PAIR, ERROR_OUTPUT_AMOUNT_NOT_ENOUGH, ERROR_PUBKEY_BLAKE160_HASH, ERROR_WITNESS_SIZE,
     IDENTITY_FLAGS_PUBKEY_HASH, MAX_CYCLES, OMNI_LOCK,
 };
 
@@ -27,8 +27,6 @@ mod misc;
 
 #[test]
 fn test_unlock_by_anyone() {
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
     let mut data_loader = DummyDataLoader::new();
     let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, false);
     config.set_acp_config(Some((0, 0)));
@@ -48,8 +46,7 @@ fn test_unlock_by_anyone() {
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     verify_result.expect("pass");
@@ -57,8 +54,6 @@ fn test_unlock_by_anyone() {
 
 #[test]
 fn test_put_output_data() {
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
     let mut data_loader = DummyDataLoader::new();
     let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, false);
     config.set_acp_config(Some((0, 0)));
@@ -79,8 +74,7 @@ fn test_put_output_data() {
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     assert_script_error(verify_result.unwrap_err(), ERROR_ENCODING);
@@ -88,8 +82,6 @@ fn test_put_output_data() {
 
 #[test]
 fn test_wrong_output_args() {
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
     let mut data_loader = DummyDataLoader::new();
     let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, false);
     config.set_acp_config(Some((0, 0)));
@@ -110,8 +102,7 @@ fn test_wrong_output_args() {
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     assert_script_error(verify_result.unwrap_err(), ERROR_NO_PAIR);
@@ -119,8 +110,6 @@ fn test_wrong_output_args() {
 
 #[test]
 fn test_split_cell() {
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
     let mut data_loader = DummyDataLoader::new();
     let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, false);
     config.set_acp_config(Some((0, 0)));
@@ -152,8 +141,7 @@ fn test_split_cell() {
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     assert_script_error(verify_result.unwrap_err(), ERROR_DUPLICATED_OUTPUTS);
@@ -161,8 +149,6 @@ fn test_split_cell() {
 
 #[test]
 fn test_merge_cell() {
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
     let mut data_loader = DummyDataLoader::new();
     let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, false);
     config.set_acp_config(Some((0, 0)));
@@ -183,8 +169,7 @@ fn test_merge_cell() {
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     assert_script_error(verify_result.unwrap_err(), ERROR_DUPLICATED_INPUTS);
@@ -192,8 +177,6 @@ fn test_merge_cell() {
 
 #[test]
 fn test_insufficient_pay() {
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
     let mut data_loader = DummyDataLoader::new();
     let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, false);
     config.set_acp_config(Some((0, 0)));
@@ -214,8 +197,7 @@ fn test_insufficient_pay() {
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     assert_script_error(verify_result.unwrap_err(), ERROR_OUTPUT_AMOUNT_NOT_ENOUGH);
@@ -223,8 +205,6 @@ fn test_insufficient_pay() {
 
 #[test]
 fn test_payment_not_meet_requirement() {
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
     let mut data_loader = DummyDataLoader::new();
     let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, false);
     config.set_acp_config(Some((1, 0)));
@@ -245,8 +225,7 @@ fn test_payment_not_meet_requirement() {
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     assert_script_error(verify_result.unwrap_err(), ERROR_OUTPUT_AMOUNT_NOT_ENOUGH);
@@ -254,8 +233,6 @@ fn test_payment_not_meet_requirement() {
 
 #[test]
 fn test_no_pair() {
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
     let mut data_loader = DummyDataLoader::new();
     let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, false);
     config.set_acp_config(Some((0, 0)));
@@ -275,8 +252,7 @@ fn test_no_pair() {
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     assert_script_error(verify_result.unwrap_err(), ERROR_NO_PAIR);
@@ -284,8 +260,6 @@ fn test_no_pair() {
 
 #[test]
 fn test_overflow() {
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
     let mut data_loader = DummyDataLoader::new();
     let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, false);
     config.set_acp_config(Some((255, 0)));
@@ -305,8 +279,7 @@ fn test_overflow() {
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     assert_script_error(verify_result.unwrap_err(), ERROR_OUTPUT_AMOUNT_NOT_ENOUGH);
@@ -314,8 +287,6 @@ fn test_overflow() {
 
 #[test]
 fn test_only_pay_ckb() {
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
     let mut data_loader = DummyDataLoader::new();
     let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, false);
     // do not accept UDT transfer
@@ -348,8 +319,7 @@ fn test_only_pay_ckb() {
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     verify_result.expect("pass");
@@ -357,8 +327,6 @@ fn test_only_pay_ckb() {
 
 #[test]
 fn test_only_pay_udt() {
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
     let mut data_loader = DummyDataLoader::new();
     let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, false);
     // do not accept CKB transfer
@@ -392,8 +360,7 @@ fn test_only_pay_udt() {
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     verify_result.expect("pass");
@@ -401,8 +368,6 @@ fn test_only_pay_udt() {
 
 #[test]
 fn test_udt_unlock_by_anyone() {
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
     let mut data_loader = DummyDataLoader::new();
     let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, false);
     config.set_acp_config(Some((0, 0)));
@@ -434,8 +399,7 @@ fn test_udt_unlock_by_anyone() {
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     verify_result.expect("pass");
@@ -443,8 +407,6 @@ fn test_udt_unlock_by_anyone() {
 
 #[test]
 fn test_udt_overflow() {
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
     let mut data_loader = DummyDataLoader::new();
     let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, false);
     // do not accept CKB transfer
@@ -477,8 +439,7 @@ fn test_udt_overflow() {
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     assert_script_error(verify_result.unwrap_err(), ERROR_OUTPUT_AMOUNT_NOT_ENOUGH);
@@ -487,8 +448,7 @@ fn test_udt_overflow() {
 #[test]
 fn test_extended_udt() {
     // we assume the first 16 bytes data represent token amount
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
+
     let mut data_loader = DummyDataLoader::new();
     let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, false);
     config.set_acp_config(Some((0, 0)));
@@ -525,8 +485,7 @@ fn test_extended_udt() {
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     verify_result.expect("pass");

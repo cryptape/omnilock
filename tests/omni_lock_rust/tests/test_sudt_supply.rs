@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use ckb_script::TransactionScriptsVerifier;
 use ckb_types::{
     bytes::Bytes,
     core::{Capacity, DepType, ScriptHashType, TransactionView},
@@ -11,8 +10,8 @@ use rand::{thread_rng, Rng};
 
 use misc::{
     assert_script_error, build_always_success_script, build_resolved_tx, debug_printer, gen_tx,
-    sign_tx, DummyDataLoader, EthereumConfig, TestConfig, ALWAYS_SUCCESS, CKB_INVALID_DATA,
-    ERROR_BURN, ERROR_EXCEED_SUPPLY, ERROR_NO_INFO_CELL, ERROR_SUPPLY_AMOUNT,
+    sign_tx, verify_tx, DummyDataLoader, EthereumConfig, TestConfig, ALWAYS_SUCCESS,
+    CKB_INVALID_DATA, ERROR_BURN, ERROR_EXCEED_SUPPLY, ERROR_NO_INFO_CELL, ERROR_SUPPLY_AMOUNT,
     IDENTITY_FLAGS_ETHEREUM, MAX_CYCLES, SIMPLE_UDT,
 };
 
@@ -182,11 +181,7 @@ where
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
 
-    let consensus = misc::gen_consensus();
-    let tx_env = misc::gen_tx_env();
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
-
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     if error_code == 0 {
@@ -708,6 +703,112 @@ fn test_info_cell_max_supply_changed() {
             info_cell_type_script.clone(),
             tx,
             input_info_cell_data,
+        );
+        tx = add_info_cell_to_outputs(info_cell_type_script.clone(), tx, output_info_cell_data);
+        tx
+    });
+}
+
+fn run_sudt_supply_case_cobuild<F>(error_code: i8, gen_tx_fn: F)
+where
+    F: Fn(&mut DummyDataLoader, &mut TestConfig) -> TransactionView,
+{
+    let mut data_loader = DummyDataLoader::new();
+    let mut config = TestConfig::new(IDENTITY_FLAGS_ETHEREUM, false);
+    config.cobuild_enabled = true;
+    config.set_chain_config(Box::new(EthereumConfig::default()));
+
+    let tx = gen_tx_fn(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader.clone());
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    if error_code == 0 {
+        verify_result.expect("pass verification");
+    } else {
+        assert_script_error(verify_result.unwrap_err(), error_code);
+    }
+}
+
+// ==== SUCCESS cases ====
+#[test]
+fn test_cobuild_success_issue_token() {
+    run_sudt_supply_case_cobuild(0, |data_loader, config| {
+        let (info_cell_type_script, cell_id) = gen_info_cell_type_script();
+        config.set_sudt_supply(cell_id);
+
+        let mut tx = gen_tx(data_loader, config);
+        let issue_amount: u128 = 336;
+        let max_supply: u128 = 6000;
+        let sudt_type_script = sudt_type_script(data_loader, &tx);
+        let sudt_type_script_hash = sudt_type_script.calc_script_hash();
+        tx = add_sudt_dep(data_loader, tx);
+        tx = add_sudt_to_outputs(sudt_type_script.clone(), tx, issue_amount);
+        let input_info_cell_data =
+            build_info_cell_data(20, max_supply, sudt_type_script_hash.as_slice());
+        let output_info_cell_data = build_info_cell_data(
+            20 + issue_amount,
+            max_supply,
+            sudt_type_script_hash.as_slice(),
+        );
+        tx = add_info_cell_to_inputs(
+            data_loader,
+            info_cell_type_script.clone(),
+            tx,
+            input_info_cell_data,
+        );
+        tx = add_info_cell_to_outputs(info_cell_type_script.clone(), tx, output_info_cell_data);
+        tx
+    });
+}
+
+// ==== ERROR cases ====
+#[test]
+fn test_cobuild_burn_token() {
+    run_sudt_supply_case_cobuild(ERROR_BURN, |data_loader, config| {
+        let (info_cell_type_script, cell_id) = gen_info_cell_type_script();
+        config.set_sudt_supply(cell_id);
+
+        let mut tx = gen_tx(data_loader, config);
+        let max_supply: u128 = 6000;
+        let sudt_type_script = sudt_type_script(data_loader, &tx);
+        let sudt_type_script_hash = sudt_type_script.calc_script_hash();
+        tx = add_sudt_dep(data_loader, tx);
+        tx = add_sudt_to_inputs(data_loader, sudt_type_script.clone(), tx, 200);
+        let input_info_cell_data =
+            build_info_cell_data(400, max_supply, sudt_type_script_hash.as_slice());
+        let output_info_cell_data =
+            build_info_cell_data(200, max_supply, sudt_type_script_hash.as_slice());
+        tx = add_info_cell_to_inputs(
+            data_loader,
+            info_cell_type_script.clone(),
+            tx,
+            input_info_cell_data,
+        );
+        tx = add_info_cell_to_outputs(info_cell_type_script.clone(), tx, output_info_cell_data);
+        tx
+    });
+}
+
+#[test]
+fn test_cobuild_no_info_cell_in_inputs() {
+    run_sudt_supply_case_cobuild(ERROR_NO_INFO_CELL, |data_loader, config| {
+        let (info_cell_type_script, cell_id) = gen_info_cell_type_script();
+        config.set_sudt_supply(cell_id);
+
+        let mut tx = gen_tx(data_loader, config);
+        let issue_amount: u128 = 336;
+        let max_supply: u128 = 6000;
+        let sudt_type_script = sudt_type_script(data_loader, &tx);
+        let sudt_type_script_hash = sudt_type_script.calc_script_hash();
+        tx = add_sudt_dep(data_loader, tx);
+        tx = add_sudt_to_outputs(sudt_type_script.clone(), tx, issue_amount);
+        let output_info_cell_data = build_info_cell_data(
+            20 + issue_amount,
+            max_supply,
+            sudt_type_script_hash.as_slice(),
         );
         tx = add_info_cell_to_outputs(info_cell_type_script.clone(), tx, output_info_cell_data);
         tx

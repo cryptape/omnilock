@@ -1,0 +1,174 @@
+{
+    "mock_info": {
+        "inputs": [
+            {
+                "input": {
+                    "since": "0x0",
+                    "previous_output": {
+                        "tx_hash": "0x05046fcd76a480b41e19f809e4d07a0357e1ced3584351bcf0e73df7c555da4e",
+                        "index": "0x0"
+                    }
+                },
+                "output": {
+                    "capacity": "0x2a",
+                    "lock": {
+                        "code_hash": "0x519b7adaa5a4b585d15aa14fe605d55b2e71235b8c4868784a3553d4d034a929",
+                        "hash_type": "data",
+                        "args": "0x0481ed18ea9760cbce2e1d08df6e902a246a94d01e00"
+                    },
+                    "type": null
+                },
+                "data": "0x",
+                "header": null
+            }
+        ],
+        "cell_deps": [
+            {
+                "cell_dep": {
+                    "out_point": {
+                        "tx_hash": "0x4bffda352ef79c5cc6f642544977a4d09ee06d5e5e48f151a7b0a29523e4deac",
+                        "index": "0x0"
+                    },
+                    "dep_type": "code"
+                },
+                "output": {
+                    "capacity": "0xb627b19f800",
+                    "lock": {
+                        "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                        "hash_type": "data",
+                        "args": "0x"
+                    },
+                    "type": null
+                },
+                "data": "0x",
+                "header": null
+            },
+            {
+                "cell_dep": {
+                    "out_point": {
+                        "tx_hash": "0xa0b74c6aab7a2e4f4b17780c3aebae9f77394ad7e61b035864443f02c82acf10",
+                        "index": "0x0"
+                    },
+                    "dep_type": "code"
+                },
+                "output": {
+                    "capacity": "0xbebc20000",
+                    "lock": {
+                        "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                        "hash_type": "data",
+                        "args": "0x"
+                    },
+                    "type": null
+                },
+                "data": "0x{{ data ../build/always_success }}",
+                "header": null
+            },
+            {
+                "cell_dep": {
+                    "out_point": {
+                        "tx_hash": "0xf658c925dbb6667639b1a2fddf838390fb3a0756ec87a12b9e31cd9c104207f0",
+                        "index": "0x0"
+                    },
+                    "dep_type": "code"
+                },
+                "output": {
+                    "capacity": "0x5f5e10000000",
+                    "lock": {
+                        "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                        "hash_type": "data",
+                        "args": "0x"
+                    },
+                    "type": null
+                },
+                "data": "0x{{ data ../build/secp256k1_data_20210801 }}",
+                "header": null
+            },
+            {
+                "cell_dep": {
+                    "out_point": {
+                        "tx_hash": "0xa638f65f650bdac13bf91134ed7eec8feded1dac5e6add9e26cf658b2a693066",
+                        "index": "0x0"
+                    },
+                    "dep_type": "code"
+                },
+                "output": {
+                    "capacity": "0x11510",
+                    "lock": {
+                        "code_hash": "0xd483925160e4232b2cb29f012e8380b7b612d71cf4e79991476b6bcf610735f6",
+                        "hash_type": "data",
+                        "args": "0x"
+                    },
+                    "type": {
+                        "code_hash": "0xa638f65f650bdac13bf91134ed7eec8feded1dac5e6add9e26cf658b2a693066",
+                        "hash_type": "type",
+                        "args": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                    }
+                },
+                "data": "0x{{ data ../build/validate_signature_rsa }}",
+                "header": null
+            }
+        ],
+        "header_deps": [],
+        "extensions": []
+    },
+    "tx": {
+        "version": "0x0",
+        "cell_deps": [
+            {
+                "out_point": {
+                    "tx_hash": "0x4bffda352ef79c5cc6f642544977a4d09ee06d5e5e48f151a7b0a29523e4deac",
+                    "index": "0x0"
+                },
+                "dep_type": "code"
+            },
+            {
+                "out_point": {
+                    "tx_hash": "0xa0b74c6aab7a2e4f4b17780c3aebae9f77394ad7e61b035864443f02c82acf10",
+                    "index": "0x0"
+                },
+                "dep_type": "code"
+            },
+            {
+                "out_point": {
+                    "tx_hash": "0xf658c925dbb6667639b1a2fddf838390fb3a0756ec87a12b9e31cd9c104207f0",
+                    "index": "0x0"
+                },
+                "dep_type": "code"
+            },
+            {
+                "out_point": {
+                    "tx_hash": "0xa638f65f650bdac13bf91134ed7eec8feded1dac5e6add9e26cf658b2a693066",
+                    "index": "0x0"
+                },
+                "dep_type": "code"
+            }
+        ],
+        "header_deps": [],
+        "inputs": [
+            {
+                "since": "0x0",
+                "previous_output": {
+                    "tx_hash": "0x05046fcd76a480b41e19f809e4d07a0357e1ced3584351bcf0e73df7c555da4e",
+                    "index": "0x0"
+                }
+            }
+        ],
+        "outputs": [
+            {
+                "capacity": "0x2a",
+                "lock": {
+                    "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "hash_type": "data",
+                    "args": "0x"
+                },
+                "type": null
+            }
+        ],
+        "outputs_data": [
+            "0x"
+        ],
+        "witnesses": [
+            "0x8d00000010000000690000008d0000005500000055000000100000005500000055000000410000001babece9ad42f96159eadd0d85e9fc7270181b0b53bf18844546e0483e1e4d69e63de00f348e662988c2b9747c05e7eb1d3f680c08cbf0eee6aeeae78f5926356420000000fbce361e03e3a60d3cda33a704b3b705663454e3e9c012647378cfe029ed6464"
+        ]
+    }
+}
