@@ -553,15 +553,15 @@ fn test_btc_err_pubkey(vtype: u8) {
 
 fn test_btc(vtype: u8) {
     test_btc_success(vtype);
-    // test_btc_err_pubkey(vtype);
+    test_btc_err_pubkey(vtype);
 }
 
 #[test]
 fn test_btc_unlock() {
     test_btc(BITCOIN_V_TYPE_P2PKHUNCOMPRESSED);
-    // test_btc(BITCOIN_V_TYPE_P2PKHCOMPRESSED);
-    // test_btc(BITCOIN_V_TYPE_SEGWITP2SH);
-    // test_btc(BITCOIN_V_TYPE_SEGWITBECH32);
+    test_btc(BITCOIN_V_TYPE_P2PKHCOMPRESSED);
+    test_btc(BITCOIN_V_TYPE_SEGWITP2SH);
+    test_btc(BITCOIN_V_TYPE_SEGWITBECH32);
 }
 
 #[test]
