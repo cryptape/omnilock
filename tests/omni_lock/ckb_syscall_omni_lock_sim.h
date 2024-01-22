@@ -184,10 +184,10 @@ mol_seg_t build_witness_lock() {
   mol_seg_t rc_identity = build_rc_identity(&identity, &proofs);
 
   MolBuilder_OmniLockWitnessLock_set_signature(&witness_lock, signature.ptr,
-                                             signature.size);
+                                               signature.size);
   if (g_setting.use_rc) {
-    MolBuilder_OmniLockWitnessLock_set_omni_identity(&witness_lock, rc_identity.ptr,
-                                                 rc_identity.size);
+    MolBuilder_OmniLockWitnessLock_set_omni_identity(
+        &witness_lock, rc_identity.ptr, rc_identity.size);
   }
 
   free(signature.ptr);
