@@ -254,7 +254,7 @@ fn build_script(
     let hash_type = if is_type {
         ScriptHashType::Type
     } else {
-        ScriptHashType::Data
+        ScriptHashType::Data1
     };
 
     let script = Script::new_builder()
@@ -492,7 +492,7 @@ pub fn build_always_success_script() -> Script {
     let data_hash = CellOutput::calc_data_hash(&ALWAYS_SUCCESS);
     Script::new_builder()
         .code_hash(data_hash.clone())
-        .hash_type(ScriptHashType::Data.into())
+        .hash_type(ScriptHashType::Data1.into())
         .build()
 }
 
@@ -519,7 +519,7 @@ pub fn build_omni_lock_script(config: &mut TestConfig, args: Bytes) -> Script {
     Script::new_builder()
         .args(args.pack())
         .code_hash(sighash_all_cell_data_hash.clone())
-        .hash_type(ScriptHashType::Data.into())
+        .hash_type(ScriptHashType::Data1.into())
         .build()
 }
 
@@ -560,7 +560,7 @@ pub fn append_input_lock_script_hash(
     let script = Script::new_builder()
         .args(Default::default())
         .code_hash(hash.clone())
-        .hash_type(ScriptHashType::Data.into())
+        .hash_type(ScriptHashType::Data1.into())
         .build();
     let blake160 = {
         let hash = script.calc_script_hash();
@@ -995,7 +995,7 @@ pub fn gen_tx_with_grouped_args(
             let script = Script::new_builder()
                 .args(args.pack())
                 .code_hash(sighash_all_cell_data_hash.clone())
-                .hash_type(ScriptHashType::Data.into())
+                .hash_type(ScriptHashType::Data1.into())
                 .build();
             config.running_script = script.clone();
             let previous_output_cell = CellOutput::new_builder()
@@ -2124,7 +2124,18 @@ pub fn verify_tx(
     resolved_tx: ResolvedTransaction,
     data_loader: DummyDataLoader,
 ) -> TransactionScriptsVerifier<DummyDataLoader> {
-    let hard_fork = HardForks::new_mirana();
+    let hard_fork = HardForks {
+        ckb2021: ckb_types::core::hardfork::CKB2021::new_mirana()
+            .as_builder()
+            .rfc_0032(5)
+            .build()
+            .unwrap(),
+        ckb2023: ckb_types::core::hardfork::CKB2023::new_mirana()
+            .as_builder()
+            .rfc_0049(10)
+            .build()
+            .unwrap(),
+    };
     let consensus = ConsensusBuilder::default()
         .hardfork_switch(hard_fork)
         .build();
@@ -2133,7 +2144,9 @@ pub fn verify_tx(
         data_loader.clone(),
         Arc::new(consensus),
         Arc::new(TxVerifyEnv::new_commit(
-            &HeaderView::new_advanced_builder().build(),
+            &HeaderView::new_advanced_builder()
+                .epoch(ckb_types::core::EpochNumberWithFraction::new(5, 0, 1).pack())
+                .build(),
         )),
     )
 }
