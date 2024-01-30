@@ -8,11 +8,12 @@ https://github.com/cryptape/ckb-transaction-cobuild-poc/blob/main/ckb-transactio
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
 #define MOLECULEC_C2_DECLARATION_ONLY
-#define MOLECULEC2_VERSION 6001
-#define MOLECULE2_API_VERSION_MIN 5000
+#define MOLECULEC2_VERSION 7002
 #include "cobuild.h"
 #include "molecule2_reader.h"
+#include "cobuild_basic_mol2.h"
 
 #include "blake2b_decl_only.h"
 #include "ckb_consts.h"
@@ -56,6 +57,10 @@ enum CobuildErrorCode {
   ERROR_NONEMPTY_WITNESS,
   ERROR_SIGHASHALL_DUP,
   ERROR_SIGHASHALL_NOSEAL,
+  ERROR_MESSAGE,
+  ERROR_TYPESCRIPT_MISSING,
+  ERROR_SEAL,
+  ERROR_FLOW,
 };
 
 enum WitnessLayoutId {
@@ -65,9 +70,15 @@ enum WitnessLayoutId {
   WitnessLayoutOtxStart = 4278190084,
 };
 
+enum MessageCalculationFlow {
+  MessageCalculationFlowBlake2b = 0,
+};
+
 const char *PERSONAL_SIGHASH_ALL = "ckb-tcob-sighash";
 const char *PERSONAL_SIGHASH_ALL_ONLY = "ckb-tcob-sgohash";
 const char *PERSONAL_OTX = "ckb-tcob-otxhash";
+
+#define MAX_TYPESCRIPT_COUNT 512
 
 /*
   The seal cursor uses this data source. So the lifetime of data source should
@@ -458,28 +469,144 @@ exit:
   return err;
 }
 
+static int hash_cmp(const void *h1, const void *h2) {
+  return memcmp(h1, h2, BLAKE2B_BLOCK_SIZE);
+}
+
+static int collect_type_script_hash(uint8_t *type_script_hash,
+                                    uint32_t *type_script_hash_count,
+                                    size_t source) {
+  int err = 0;
+  size_t i = 0;
+  while (1) {
+    uint8_t hash[BLAKE2B_BLOCK_SIZE] = {0};
+    uint64_t len = BLAKE2B_BLOCK_SIZE;
+    err = ckb_load_cell_by_field(hash, &len, 0, i, source,
+                                 CKB_CELL_FIELD_TYPE_HASH);
+    if (err == CKB_INDEX_OUT_OF_BOUND) {
+      err = 0;
+      break;
+    }
+    if (err == CKB_ITEM_MISSING) {
+      i += 1;
+      continue;
+    }
+    CHECK(err);
+    CHECK2(*type_script_hash_count < MAX_TYPESCRIPT_COUNT, ERROR_GENERAL);
+    memcpy(&type_script_hash[(*type_script_hash_count) * BLAKE2B_BLOCK_SIZE],
+           hash, BLAKE2B_BLOCK_SIZE);
+    (*type_script_hash_count)++;
+    i += 1;
+  }
+exit:
+  return err;
+}
+
+// For each action in the message, ensure a corresponding type script hash
+// (including input/output) matches the action.script_hash. Let A be the set of
+// action.script_hash, and B be the set of all input/output script hashes; A ∈ B
+// should be satisfied.
+static int check_type_script_existing(mol2_cursor_t message) {
+  int err = 0;
+  // cache all type script hashes in input/output cells
+  uint8_t type_script_hash[BLAKE2B_BLOCK_SIZE * MAX_TYPESCRIPT_COUNT] = {0};
+  uint32_t type_script_hash_count = 0;
+
+  err = collect_type_script_hash(type_script_hash, &type_script_hash_count,
+                                 CKB_SOURCE_INPUT);
+  CHECK(err);
+  err = collect_type_script_hash(type_script_hash, &type_script_hash_count,
+                                 CKB_SOURCE_OUTPUT);
+  CHECK(err);
+  // sort for fast searching
+  qsort(type_script_hash, type_script_hash_count, BLAKE2B_BLOCK_SIZE, hash_cmp);
+
+  MessageType msg = make_Message(&message);
+  ActionVecType actions = msg.t->actions(&msg);
+  uint32_t len = actions.t->len(&actions);
+  for (uint32_t i = 0; i < len; i++) {
+    bool existing = false;
+    ActionType action = actions.t->get(&actions, i, &existing);
+    CHECK2(existing, ERROR_GENERAL);
+    mol2_cursor_t hash = action.t->script_hash(&action);
+    uint8_t hash_buff[BLAKE2B_BLOCK_SIZE] = {0};
+    uint32_t len = mol2_read_at(&hash, hash_buff, BLAKE2B_BLOCK_SIZE);
+    CHECK2(len == BLAKE2B_BLOCK_SIZE, ERROR_MESSAGE);
+    void *found = bsearch(hash_buff, type_script_hash, type_script_hash_count,
+                          BLAKE2B_BLOCK_SIZE, hash_cmp);
+    CHECK2(found != NULL, ERROR_TYPESCRIPT_MISSING);
+  }
+
+exit:
+  return err;
+}
+
+// Parse the `original_seal` and return underlying seal after adjustment. The
+// first byte of `seal` is considered as an id of message calculation flow.
+static int parse_seal(const mol2_cursor_t original_seal, mol2_cursor_t *seal,
+                      uint8_t *message_calculation_flow) {
+  int err = 0;
+  uint32_t prefix_length = 1 + MOL2_NUM_T_SIZE;
+  uint8_t prefix[1 + MOL2_NUM_T_SIZE] = {0};
+
+  uint32_t len = mol2_read_at(&original_seal, prefix, prefix_length);
+  CHECK2(len == prefix_length, ERROR_SEAL);
+  *message_calculation_flow = prefix[MOL2_NUM_T_SIZE];
+  *seal = original_seal;
+  mol2_add_offset(seal, prefix_length);
+  mol2_sub_size(seal, prefix_length);
+  mol2_validate(seal);
+
+exit:
+  return err;
+}
+
 int ckb_parse_message(uint8_t *signing_message_hash, mol2_cursor_t *seal) {
   int err = ERROR_GENERAL;
 
-  err = ckb_check_others_in_group();
-  // tested by test_non_empty_witness
-  CHECK(err);
   bool has_message = false;
   mol2_cursor_t message;
   // the message cursor requires longer lifetime of data_source
   uint8_t data_source[DEFAULT_DATA_SOURCE_LENGTH];
+  // step 8.a, 8.b
   err = ckb_fetch_message(&has_message, &message, data_source, MAX_CACHE_SIZE);
   CHECK(err);
-  print_cursor("message", message);
+  if (has_message) {
+    print_cursor("message", message);
+    // step 8.c
+    err = check_type_script_existing(message);
+    CHECK(err);
+  }
 
-  err = ckb_generate_signing_message_hash(has_message, message,
-                                          signing_message_hash);
+  mol2_cursor_t original_seal = {0};
+  // step 8.d
+  // step 8.f
+  err = ckb_fetch_seal(&original_seal);
   CHECK(err);
-  print_raw_data("signing_message_hash", signing_message_hash, 32);
+  print_cursor("seal", original_seal);
 
-  err = ckb_fetch_seal(seal);
+  // step 8.e
+  err = ckb_check_others_in_group();
+  // tested by test_non_empty_witness
   CHECK(err);
-  print_cursor("seal", *seal);
+
+  // support more message calculation flows base on the first byte of seal
+  uint8_t message_calculation_flow = 0;
+  err = parse_seal(original_seal, seal, &message_calculation_flow);
+  CHECK(err);
+
+  if (message_calculation_flow == MessageCalculationFlowBlake2b) {
+    // step 8.g
+    err = ckb_generate_signing_message_hash(has_message, message,
+                                            signing_message_hash);
+    CHECK(err);
+    print_raw_data("signing_message_hash", signing_message_hash,
+                   BLAKE2B_BLOCK_SIZE);
+  } else {
+    // we can add more message calculation flows in the further, based on the
+    // first byte of seal
+    CHECK2(false, ERROR_FLOW);
+  }
 
 exit:
   return err;

@@ -32,6 +32,7 @@ int ckb_exit(signed char);
 #undef CHECK
 #include "rce.h"
 #include "omni_lock_mol2.h"
+#include "cobuild_basic_mol2.h"
 
 #include "omni_lock_acp.h"
 #include "omni_lock_time_lock.h"
@@ -320,7 +321,7 @@ int parse_witness_lock(WitnessLockType *witness_lock, mol2_cursor_t *seal) {
   mol2_cursor_t mol_lock_bytes = {0};
 
   if (seal) {
-    mol_lock_bytes = convert_to_rawbytes(seal);
+    mol_lock_bytes = *seal;
     witness_existing = true;
   } else {
     WitnessArgsType witness_args;

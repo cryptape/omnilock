@@ -87,7 +87,7 @@ build/cobuild.o: c/cobuild.c c/cobuild.h
 build/omni_lock.o: c/omni_lock.c c/omni_lock_supply.h c/omni_lock_acp.h c/secp256k1_lock.h build/secp256k1_data_info_20210801.h $(SECP256K1_SRC_20210801) c/ckb_identity.h
 	$(CC) -c $(OMNI_LOCK_CFLAGS) -o $@ $<
 
-build/omni_lock: build/omni_lock.o build/cobuild.o 
+build/omni_lock: build/omni_lock.o build/cobuild.o
 	$(CC) $(LDFLAGS) -o $@ $^
 	cp $@ $@.debug
 	$(OBJCOPY) --strip-debug --strip-all $@
@@ -95,6 +95,8 @@ build/omni_lock: build/omni_lock.o build/cobuild.o
 cobuild_mol:
 	${MOLC} --language rust --schema-file c/basic.mol | rustfmt > tests/omni_lock_rust/src/schemas/basic.rs
 	${MOLC} --language rust --schema-file c/top_level.mol | rustfmt > tests/omni_lock_rust/src/schemas/top_level.rs
+	${MOLC} --language - --schema-file c/basic.mol --format json > build/cobuild_basic_mol2.json
+	moleculec-c2 --input build/cobuild_basic_mol2.json | clang-format -style=Google > c/cobuild_basic_mol2.h
 
 clean:
 	rm -rf build/secp256k1_data_info_20210801.h build/dump_secp256k1_data_20210801

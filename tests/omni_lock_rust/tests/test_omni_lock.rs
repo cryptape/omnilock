@@ -4,6 +4,7 @@
 mod misc;
 
 use std::fs::File;
+use std::hash::Hash;
 use std::io::Read;
 
 use blake2b_rs::{Blake2b, Blake2bBuilder};
@@ -12,6 +13,7 @@ use ckb_crypto::secp::Generator;
 use ckb_error::assert_error_eq;
 use ckb_script::{ScriptError, TransactionScriptsVerifier, TxVerifyEnv};
 use ckb_types::core::hardfork::HardForks;
+use ckb_types::packed::ScriptOpt;
 use ckb_types::{
     bytes::Bytes,
     bytes::BytesMut,
@@ -678,7 +680,7 @@ fn test_binary_unchanged() {
 
     let actual_hash = faster_hex::hex_string(&hash);
     assert_eq!(
-        "519b7adaa5a4b585d15aa14fe605d55b2e71235b8c4868784a3553d4d034a929",
+        "091cd5995b23f1f1e5041b88f302a1c25bc4aa2a7e223358084d1ae0f990369e",
         &actual_hash
     );
 }
@@ -1102,15 +1104,18 @@ fn test_cobuild_big_message() {
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
 
+    let always_success_script = build_always_success_script();
+    let always_success_script_hash = always_success_script.calc_script_hash();
+    let always_success_script_opt = ScriptOpt::new_builder()
+        .set(Some(always_success_script))
+        .build();
+
     let mut action_vec = Vec::<Action>::new();
     for _ in 0..3072 {
         let action_builder = Action::new_builder();
-        let action_builder = action_builder.script_info_hash(
-            ckb_types::packed::Byte32::new_unchecked(Bytes::from(vec![0x00; 32])),
-        );
-        let action_builder = action_builder.script_hash(ckb_types::packed::Byte32::new_unchecked(
-            Bytes::from(vec![0x00; 32]),
-        ));
+        let action_builder = action_builder
+            .script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
+        let action_builder = action_builder.script_hash(always_success_script_hash.clone());
         let action_builder = action_builder.data(ckb_types::packed::Bytes::new_unchecked(
             Bytes::from(vec![0x42; 128]),
         ));
@@ -1127,8 +1132,27 @@ fn test_cobuild_big_message() {
     }));
 
     let tx = gen_tx(&mut data_loader, &mut config);
+
+    let output0 = tx
+        .output(0)
+        .unwrap()
+        .as_builder()
+        .type_(always_success_script_opt)
+        .build();
+    let tx = tx.as_advanced_builder().set_outputs(vec![output0]).build();
+
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    // Print tx in json format.
+    //
+    // [dependencies]
+    // ckb-jsonrpc-types = "0.113.0"
+    // serde = "*"
+    // serde_json = "*"
+    //
+    // let tx_json = ckb_jsonrpc_types::TransactionView::from(resolved_tx.transaction.clone());
+    // println!("{}", serde_json::to_string(&tx_json).unwrap());
 
     let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
@@ -1370,6 +1394,146 @@ fn test_cobuild_eth_displaying_unlock() {
     config.set_chain_config(Box::new(EthereumDisplayConfig::default()));
 
     let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    verify_result.expect("pass verification");
+}
+
+#[test]
+fn test_cobuild_check_action_script_hash_is_in_inputs() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
+    config.cobuild_enabled = true;
+
+    let always_success_script = build_always_success_script();
+    let always_success_script_hash = always_success_script.calc_script_hash();
+    let always_success_script_opt = ScriptOpt::new_builder()
+        .set(Some(always_success_script))
+        .build();
+
+    let mut action_vec = Vec::<Action>::new();
+    let action_builder = Action::new_builder();
+    let action_builder = action_builder
+        .script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
+    let action_builder = action_builder.script_hash(always_success_script_hash.clone());
+    let action_builder = action_builder.data(ckb_types::packed::Bytes::new_unchecked(Bytes::from(
+        vec![0x42; 128],
+    )));
+    let action = action_builder.build();
+    action_vec.push(action);
+    let action_vec = ActionVec::new_builder().extend(action_vec).build();
+    let message = Message::new_builder().actions(action_vec).build();
+    config.cobuild_message = Some(message);
+
+    config.set_chain_config(Box::new(BitcoinConfig {
+        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
+        pubkey_err: false,
+    }));
+
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let (cell, cell_data) = data_loader
+        .cells
+        .get(&tx.inputs().get(0).unwrap().previous_output())
+        .unwrap();
+    let cell = cell
+        .clone()
+        .as_builder()
+        .type_(always_success_script_opt)
+        .build();
+    data_loader.cells.insert(
+        tx.inputs().get(0).unwrap().previous_output(),
+        (cell.clone(), cell_data.clone()),
+    );
+
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    verify_result.expect("pass verification");
+}
+
+#[test]
+fn test_cobuild_check_action_script_hash_is_in_2_outputs() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
+    config.cobuild_enabled = true;
+
+    let always_success_script_0 = build_always_success_script();
+    let always_success_script_1 = build_always_success_script();
+    let always_success_script_0 = always_success_script_0
+        .as_builder()
+        .args(vec![0x00].pack())
+        .build();
+    let always_success_script_1 = always_success_script_1
+        .as_builder()
+        .args(vec![0x01].pack())
+        .build();
+    let always_success_script_hash_0 = always_success_script_0.calc_script_hash();
+    let always_success_script_hash_1 = always_success_script_1.calc_script_hash();
+    let always_success_script_opt_0 = ScriptOpt::new_builder()
+        .set(Some(always_success_script_0))
+        .build();
+    let always_success_script_opt_1 = ScriptOpt::new_builder()
+        .set(Some(always_success_script_1))
+        .build();
+
+    let mut action_vec = Vec::<Action>::new();
+    let action_builder_0 = Action::new_builder();
+    let action_builder_0 = action_builder_0
+        .script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
+    let action_builder_0 = action_builder_0.script_hash(always_success_script_hash_0.clone());
+    let action_builder_0 = action_builder_0.data(ckb_types::packed::Bytes::new_unchecked(
+        Bytes::from(vec![0x42; 128]),
+    ));
+    let action_0 = action_builder_0.build();
+    action_vec.push(action_0.clone());
+    let action_builder_1 = Action::new_builder();
+    let action_builder_1 = action_builder_1
+        .script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
+    let action_builder_1 = action_builder_1.script_hash(always_success_script_hash_1.clone());
+    let action_builder_1 = action_builder_1.data(ckb_types::packed::Bytes::new_unchecked(
+        Bytes::from(vec![0x42; 128]),
+    ));
+    let action_1 = action_builder_1.build();
+    action_vec.push(action_1);
+
+    let action_vec = ActionVec::new_builder().extend(action_vec).build();
+    let message = Message::new_builder().actions(action_vec).build();
+    config.cobuild_message = Some(message); // Message is 651300 bytes in molecule type.
+
+    config.set_chain_config(Box::new(BitcoinConfig {
+        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
+        pubkey_err: false,
+    }));
+
+    let tx = gen_tx(&mut data_loader, &mut config);
+
+    let output0 = tx
+        .output(0)
+        .unwrap()
+        .as_builder()
+        .type_(always_success_script_opt_0)
+        .build();
+    let output1 = tx
+        .output(0)
+        .unwrap()
+        .as_builder()
+        .type_(always_success_script_opt_1)
+        .build();
+    let tx = tx
+        .as_advanced_builder()
+        .set_outputs(vec![output0, output1])
+        .outputs_data(vec![vec![0x00].pack(), vec![0x00].pack()])
+        .build();
+
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
 

@@ -758,7 +758,11 @@ pub fn sign_tx_by_input_group(
                         Some(msg) => {
                             let sighash_all = SighashAll::new_builder()
                                 .message(msg.clone())
-                                .seal(witness_lock.pack())
+                                .seal(
+                                    [Bytes::copy_from_slice(&[0x00u8]), witness_lock]
+                                        .concat()
+                                        .pack(),
+                                )
                                 .build();
                             let sighash_all = WitnessLayout::new_builder().set(sighash_all).build();
                             let sighash_all = sighash_all.as_bytes();
@@ -773,7 +777,11 @@ pub fn sign_tx_by_input_group(
                         }
                         None => {
                             let sighash_all_only = SighashAllOnly::new_builder()
-                                .seal(witness_lock.pack())
+                                .seal(
+                                    [Bytes::copy_from_slice(&[0x00u8]), witness_lock]
+                                        .concat()
+                                        .pack(),
+                                )
                                 .build();
                             let sighash_all_only =
                                 WitnessLayout::new_builder().set(sighash_all_only).build();
