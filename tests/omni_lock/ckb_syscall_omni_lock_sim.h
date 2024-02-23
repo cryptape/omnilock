@@ -85,8 +85,6 @@ typedef struct RcLockSettingType {
   // test scheme
   bool wrong_signature;
   bool wrong_pubkey_hash;
-  // owner lock without rc doesn't require witness
-  bool empty_witness;
 } RcLockSettingType;
 
 RcLockSettingType g_setting = {0};
@@ -547,11 +545,6 @@ int ckb_load_witness(void* addr, uint64_t* len, size_t offset, size_t index,
                      size_t source) {
   if (index > 0) {
     return CKB_INDEX_OUT_OF_BOUND;
-  }
-
-  if (g_setting.empty_witness) {
-    *len = 0;
-    return 0;
   }
 
   slice_t seg = g_states.witness[0];

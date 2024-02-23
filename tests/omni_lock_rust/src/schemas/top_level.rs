@@ -32,10 +32,8 @@ impl ::core::default::Default for WitnessLayout {
     }
 }
 impl WitnessLayout {
-    const DEFAULT_VALUE: [u8; 32] = [
-        1, 0, 0, 255, 28, 0, 0, 0, 12, 0, 0, 0, 24, 0, 0, 0, 12, 0, 0, 0, 8, 0, 0, 0, 4, 0, 0, 0,
-        0, 0, 0, 0,
-    ];
+    const DEFAULT_VALUE: [u8; 32] =
+        [1, 0, 0, 255, 28, 0, 0, 0, 12, 0, 0, 0, 24, 0, 0, 0, 12, 0, 0, 0, 8, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0];
     pub const ITEMS_COUNT: usize = 4;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
@@ -172,8 +170,7 @@ impl molecule::prelude::Builder for WitnessLayoutBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         WitnessLayout::new_unchecked(inner.into())
     }
 }

@@ -15,12 +15,11 @@ use lazy_static::lazy_static;
 use rand::{thread_rng, Rng, SeedableRng};
 
 use misc::{
-    assert_script_error, blake160, build_always_success_script, build_omni_lock_script,
-    build_resolved_tx, debug_printer, gen_tx, gen_tx_with_grouped_args, gen_witness_lock, sign_tx,
-    sign_tx_by_input_group, sign_tx_hash, verify_tx, DummyDataLoader, TestConfig, TestScheme,
-    ALWAYS_SUCCESS, ERROR_DUPLICATED_INPUTS, ERROR_DUPLICATED_OUTPUTS, ERROR_ENCODING,
-    ERROR_NO_PAIR, ERROR_OUTPUT_AMOUNT_NOT_ENOUGH, ERROR_PUBKEY_BLAKE160_HASH, ERROR_WITNESS_SIZE,
-    IDENTITY_FLAGS_PUBKEY_HASH, MAX_CYCLES, OMNI_LOCK,
+    assert_script_error, blake160, build_always_success_script, build_omni_lock_script, build_resolved_tx,
+    debug_printer, gen_tx, gen_tx_with_grouped_args, gen_witness_lock, sign_tx, sign_tx_by_input_group, sign_tx_hash,
+    verify_tx, DummyDataLoader, TestConfig, TestScheme, ALWAYS_SUCCESS, ERROR_DUPLICATED_INPUTS,
+    ERROR_DUPLICATED_OUTPUTS, ERROR_ENCODING, ERROR_NO_PAIR, ERROR_OUTPUT_AMOUNT_NOT_ENOUGH,
+    ERROR_PUBKEY_BLAKE160_HASH, ERROR_WITNESS_SIZE, IDENTITY_FLAGS_PUBKEY_HASH, MAX_CYCLES, OMNI_LOCK,
 };
 
 mod misc;
@@ -38,11 +37,7 @@ fn test_unlock_by_anyone() {
     let tx = tx
         .as_advanced_builder()
         .set_witnesses(Vec::new())
-        .set_outputs(vec![output
-            .as_builder()
-            .lock(script)
-            .capacity(44u64.pack())
-            .build()])
+        .set_outputs(vec![output.as_builder().lock(script).capacity(44u64.pack()).build()])
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
@@ -65,11 +60,7 @@ fn test_put_output_data() {
     let tx = tx
         .as_advanced_builder()
         .set_witnesses(Vec::new())
-        .set_outputs(vec![output
-            .as_builder()
-            .lock(script)
-            .capacity(44u64.pack())
-            .build()])
+        .set_outputs(vec![output.as_builder().lock(script).capacity(44u64.pack()).build()])
         .set_outputs_data(vec![Bytes::from(vec![42u8]).pack()])
         .build();
 
@@ -94,11 +85,7 @@ fn test_wrong_output_args() {
     let tx = tx
         .as_advanced_builder()
         .set_witnesses(Vec::new())
-        .set_outputs(vec![output
-            .as_builder()
-            .lock(script)
-            .capacity(44u64.pack())
-            .build()])
+        .set_outputs(vec![output.as_builder().lock(script).capacity(44u64.pack()).build()])
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
@@ -122,22 +109,10 @@ fn test_split_cell() {
         .as_advanced_builder()
         .set_witnesses(Vec::new())
         .set_outputs(vec![
-            output
-                .clone()
-                .as_builder()
-                .lock(script.clone())
-                .capacity(44u64.pack())
-                .build(),
-            output
-                .as_builder()
-                .lock(script)
-                .capacity(44u64.pack())
-                .build(),
+            output.clone().as_builder().lock(script.clone()).capacity(44u64.pack()).build(),
+            output.as_builder().lock(script).capacity(44u64.pack()).build(),
         ])
-        .set_outputs_data(vec![
-            Bytes::from(Vec::new()).pack(),
-            Bytes::from(Vec::new()).pack(),
-        ])
+        .set_outputs_data(vec![Bytes::from(Vec::new()).pack(), Bytes::from(Vec::new()).pack()])
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
@@ -160,12 +135,7 @@ fn test_merge_cell() {
     let tx = tx
         .as_advanced_builder()
         .set_witnesses(Vec::new())
-        .set_outputs(vec![output
-            .clone()
-            .as_builder()
-            .lock(script.clone())
-            .capacity(88u64.pack())
-            .build()])
+        .set_outputs(vec![output.clone().as_builder().lock(script.clone()).capacity(88u64.pack()).build()])
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
@@ -188,12 +158,7 @@ fn test_insufficient_pay() {
     let tx = tx
         .as_advanced_builder()
         .set_witnesses(Vec::new())
-        .set_outputs(vec![output
-            .clone()
-            .as_builder()
-            .lock(script.clone())
-            .capacity(41u64.pack())
-            .build()])
+        .set_outputs(vec![output.clone().as_builder().lock(script.clone()).capacity(41u64.pack()).build()])
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
@@ -216,12 +181,7 @@ fn test_payment_not_meet_requirement() {
     let tx = tx
         .as_advanced_builder()
         .set_witnesses(Vec::new())
-        .set_outputs(vec![output
-            .clone()
-            .as_builder()
-            .lock(script.clone())
-            .capacity(44u64.pack())
-            .build()])
+        .set_outputs(vec![output.clone().as_builder().lock(script.clone()).capacity(44u64.pack()).build()])
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
@@ -243,12 +203,7 @@ fn test_no_pair() {
     let tx = tx
         .as_advanced_builder()
         .set_witnesses(Vec::new())
-        .set_outputs(vec![output
-            .clone()
-            .as_builder()
-            .lock(another_script.clone())
-            .capacity(44u64.pack())
-            .build()])
+        .set_outputs(vec![output.clone().as_builder().lock(another_script.clone()).capacity(44u64.pack()).build()])
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
@@ -271,11 +226,7 @@ fn test_overflow() {
     let tx = tx
         .as_advanced_builder()
         .set_witnesses(Vec::new())
-        .set_outputs(vec![output
-            .as_builder()
-            .lock(script)
-            .capacity(44u64.pack())
-            .build()])
+        .set_outputs(vec![output.as_builder().lock(script).capacity(44u64.pack()).build()])
         .build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
@@ -297,14 +248,9 @@ fn test_only_pay_ckb() {
     let script = build_omni_lock_script(&mut config, args);
     let input = tx.inputs().get(0).unwrap();
     let (prev_output, _) = data_loader.cells.remove(&input.previous_output()).unwrap();
-    let prev_output = prev_output
-        .as_builder()
-        .type_(Some(build_always_success_script()).pack())
-        .build();
+    let prev_output = prev_output.as_builder().type_(Some(build_always_success_script()).pack()).build();
     let prev_data = 44u128.to_le_bytes().to_vec().into();
-    data_loader
-        .cells
-        .insert(input.previous_output(), (prev_output, prev_data));
+    data_loader.cells.insert(input.previous_output(), (prev_output, prev_data));
     let output = tx.outputs().get(0).unwrap();
     let tx = tx
         .as_advanced_builder()
@@ -338,14 +284,9 @@ fn test_only_pay_udt() {
     let input = tx.inputs().get(0).unwrap();
     let (prev_output, _) = data_loader.cells.remove(&input.previous_output()).unwrap();
     let input_capacity = prev_output.capacity();
-    let prev_output = prev_output
-        .as_builder()
-        .type_(Some(build_always_success_script()).pack())
-        .build();
+    let prev_output = prev_output.as_builder().type_(Some(build_always_success_script()).pack()).build();
     let prev_data = 43u128.to_le_bytes().to_vec().into();
-    data_loader
-        .cells
-        .insert(input.previous_output(), (prev_output, prev_data));
+    data_loader.cells.insert(input.previous_output(), (prev_output, prev_data));
     let output = tx.outputs().get(0).unwrap();
     let tx = tx
         .as_advanced_builder()
@@ -377,14 +318,9 @@ fn test_udt_unlock_by_anyone() {
     let script = build_omni_lock_script(&mut config, args);
     let input = tx.inputs().get(0).unwrap();
     let (prev_output, _) = data_loader.cells.remove(&input.previous_output()).unwrap();
-    let prev_output = prev_output
-        .as_builder()
-        .type_(Some(build_always_success_script()).pack())
-        .build();
+    let prev_output = prev_output.as_builder().type_(Some(build_always_success_script()).pack()).build();
     let prev_data = 43u128.to_le_bytes().to_vec().into();
-    data_loader
-        .cells
-        .insert(input.previous_output(), (prev_output, prev_data));
+    data_loader.cells.insert(input.previous_output(), (prev_output, prev_data));
     let output = tx.outputs().get(0).unwrap();
     let tx = tx
         .as_advanced_builder()
@@ -417,14 +353,9 @@ fn test_udt_overflow() {
     let script = build_omni_lock_script(&mut config, args);
     let input = tx.inputs().get(0).unwrap();
     let (prev_output, _) = data_loader.cells.remove(&input.previous_output()).unwrap();
-    let prev_output = prev_output
-        .as_builder()
-        .type_(Some(build_always_success_script()).pack())
-        .build();
+    let prev_output = prev_output.as_builder().type_(Some(build_always_success_script()).pack()).build();
     let prev_data = 43u128.to_le_bytes().to_vec().into();
-    data_loader
-        .cells
-        .insert(input.previous_output(), (prev_output, prev_data));
+    data_loader.cells.insert(input.previous_output(), (prev_output, prev_data));
     let output = tx.outputs().get(0).unwrap();
     let tx = tx
         .as_advanced_builder()
@@ -458,16 +389,11 @@ fn test_extended_udt() {
     let script = build_omni_lock_script(&mut config, args);
     let input = tx.inputs().get(0).unwrap();
     let (prev_output, _) = data_loader.cells.remove(&input.previous_output()).unwrap();
-    let prev_output = prev_output
-        .as_builder()
-        .type_(Some(build_always_success_script()).pack())
-        .build();
+    let prev_output = prev_output.as_builder().type_(Some(build_always_success_script()).pack()).build();
     let mut prev_data = 43u128.to_le_bytes().to_vec();
     // push junk data
     prev_data.push(42);
-    data_loader
-        .cells
-        .insert(input.previous_output(), (prev_output, prev_data.into()));
+    data_loader.cells.insert(input.previous_output(), (prev_output, prev_data.into()));
     let output = tx.outputs().get(0).unwrap();
     let mut output_udt = 44u128.to_le_bytes().to_vec();
     // push junk data

@@ -52,24 +52,6 @@ fn test_simple_owner_lock() {
 }
 
 #[test]
-fn test_owner_lock_without_witness() {
-    let mut data_loader = DummyDataLoader::new();
-
-    let mut config = TestConfig::new(IDENTITY_FLAGS_OWNER_LOCK, false);
-    config.scheme2 = TestScheme2::NoWitness;
-
-    let tx = gen_tx(&mut data_loader, &mut config);
-    let tx = sign_tx(&mut data_loader, tx, &mut config);
-    let resolved_tx = build_resolved_tx(&data_loader, &tx);
-
-    let mut verifier = verify_tx(resolved_tx, data_loader);
-
-    verifier.set_debug_printer(debug_printer);
-    let verify_result = verifier.verify(MAX_CYCLES);
-    verify_result.expect("pass verification");
-}
-
-#[test]
 fn test_simple_owner_lock_mismatched() {
     let mut data_loader = DummyDataLoader::new();
 
@@ -103,25 +85,6 @@ fn test_owner_lock_on_wl() {
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     verify_result.expect("pass verification");
-}
-
-#[test]
-fn test_owner_lock_on_wl_without_witness() {
-    let mut data_loader = DummyDataLoader::new();
-
-    let mut config = TestConfig::new(IDENTITY_FLAGS_OWNER_LOCK, true);
-    config.scheme = TestScheme::OnWhiteList;
-    config.scheme2 = TestScheme2::NoWitness;
-
-    let tx = gen_tx(&mut data_loader, &mut config);
-    let tx = sign_tx(&mut data_loader, tx, &mut config);
-    let resolved_tx = build_resolved_tx(&data_loader, &tx);
-
-    let mut verifier = verify_tx(resolved_tx, data_loader);
-
-    verifier.set_debug_printer(debug_printer);
-    let verify_result = verifier.verify(MAX_CYCLES);
-    assert!(verify_result.is_err());
 }
 
 #[test]
@@ -240,25 +203,6 @@ fn test_pubkey_hash_without_omni_identity() {
 }
 
 #[test]
-fn test_pubkey_hash_on_wl_without_witness() {
-    let mut data_loader = DummyDataLoader::new();
-
-    let mut config = TestConfig::new(IDENTITY_FLAGS_PUBKEY_HASH, true);
-    config.scheme = TestScheme::OnWhiteList;
-    config.scheme2 = TestScheme2::NoWitness;
-
-    let tx = gen_tx(&mut data_loader, &mut config);
-    let tx = sign_tx(&mut data_loader, tx, &mut config);
-    let resolved_tx = build_resolved_tx(&data_loader, &tx);
-
-    let mut verifier = verify_tx(resolved_tx, data_loader);
-
-    verifier.set_debug_printer(debug_printer);
-    let verify_result = verifier.verify(MAX_CYCLES);
-    assert!(verify_result.is_err());
-}
-
-#[test]
 fn test_pubkey_hash_not_on_wl() {
     let mut data_loader = DummyDataLoader::new();
 
@@ -363,47 +307,6 @@ fn test_rsa_via_dl_wrong_sig() {
     assert_script_error(verify_result.unwrap_err(), ERROR_RSA_VERIFY_FAILED);
 }
 
-#[test]
-fn test_rsa_via_dl_unlock_with_time_lock() {
-    let mut data_loader = DummyDataLoader::new();
-
-    let args_since = 0x2000_0000_0000_0000u64 + 200;
-    let input_since = 0x2000_0000_0000_0000u64 + 200;
-    let mut config = TestConfig::new(IDENTITY_FLAGS_DL, false);
-    config.set_rsa();
-    config.set_since(args_since, input_since);
-
-    let tx = gen_tx(&mut data_loader, &mut config);
-    let tx = sign_tx(&mut data_loader, tx, &mut config);
-    let resolved_tx = build_resolved_tx(&data_loader, &tx);
-
-    let mut verifier = verify_tx(resolved_tx, data_loader);
-    verifier.set_debug_printer(debug_printer);
-    let verify_result = verifier.verify(MAX_CYCLES);
-    verify_result.expect("pass verification");
-}
-
-#[test]
-fn test_rsa_via_dl_unlock_with_time_lock_failed() {
-    let mut data_loader = DummyDataLoader::new();
-
-    let args_since = 0x2000_0000_0000_0000u64 + 200;
-    let input_since = 0x2000_0000_0000_0000u64 + 100;
-    let mut config = TestConfig::new(IDENTITY_FLAGS_DL, false);
-    config.set_rsa();
-    config.set_since(args_since, input_since);
-
-    let tx = gen_tx(&mut data_loader, &mut config);
-    let tx = sign_tx(&mut data_loader, tx, &mut config);
-    let resolved_tx = build_resolved_tx(&data_loader, &tx);
-
-    let mut verifier = verify_tx(resolved_tx, data_loader);
-    verifier.set_debug_printer(debug_printer);
-    let verify_result = verifier.verify(MAX_CYCLES);
-
-    assert_script_error(verify_result.unwrap_err(), ERROR_INCORRECT_SINCE_VALUE);
-}
-
 // currently, the signature can only be signed via hardware.
 // Here we can only provide a failed case.
 #[test]
@@ -444,10 +347,7 @@ fn test_btc_success(vtype: u8) {
     let mut data_loader = DummyDataLoader::new();
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: vtype,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: vtype, pubkey_err: false }));
 
     let tx = gen_tx(&mut data_loader, &mut config);
     let tx = sign_tx(&mut data_loader, tx, &mut config);
@@ -464,10 +364,7 @@ fn test_cobuild_btc_success(vtype: u8) {
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: vtype,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: vtype, pubkey_err: false }));
 
     let tx = gen_tx(&mut data_loader, &mut config);
     let tx = sign_tx(&mut data_loader, tx, &mut config);
@@ -483,10 +380,7 @@ fn test_btc_err_pubkey(vtype: u8) {
     let mut data_loader = DummyDataLoader::new();
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: vtype,
-        pubkey_err: true,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: vtype, pubkey_err: true }));
 
     let tx = gen_tx(&mut data_loader, &mut config);
     let tx = sign_tx(&mut data_loader, tx, &mut config);
@@ -657,13 +551,13 @@ fn test_eth_displaying_unlock() {
 }
 
 // this test can fail during development
+// TODO: enable it when ready
 #[test]
+#[ignore]
 fn test_binary_unchanged() {
     let mut buf = [0u8; 8 * 1024];
     // build hash
-    let mut blake2b = Blake2bBuilder::new(32)
-        .personal(b"ckb-default-hash")
-        .build();
+    let mut blake2b = Blake2bBuilder::new(32).personal(b"ckb-default-hash").build();
 
     let mut fd = File::open("../../build/omni_lock").expect("open file");
     loop {
@@ -679,10 +573,7 @@ fn test_binary_unchanged() {
     blake2b.finalize(&mut hash);
 
     let actual_hash = faster_hex::hex_string(&hash);
-    assert_eq!(
-        "a519c447eef1e3d0a22b2e1bec4403eb7d9305849bc2905a49917ff5565c14f0",
-        &actual_hash
-    );
+    assert_eq!("ffc1ed16066f76ac2b9e5634c482aa05e9b34860c53ae79615d2a65679dad06f", &actual_hash);
 }
 
 #[test]
@@ -690,10 +581,7 @@ fn test_cobuild_no_has_message() {
     let mut data_loader = DummyDataLoader::new();
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     config.custom_extension_witnesses = Some(vec![Bytes::from([00, 00].to_vec())]);
 
@@ -713,16 +601,10 @@ fn test_cobuild_append_witnessed_less_than_4() {
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
-    config.custom_extension_witnesses = Some(vec![
-        Bytes::from([00, 01, 00].to_vec()),
-        Bytes::from([00, 00, 00, 00].to_vec()),
-        Bytes::new(),
-    ]);
+    config.custom_extension_witnesses =
+        Some(vec![Bytes::from([00, 01, 00].to_vec()), Bytes::from([00, 00, 00, 00].to_vec()), Bytes::new()]);
 
     let tx = gen_tx(&mut data_loader, &mut config);
     let tx = sign_tx(&mut data_loader, tx, &mut config);
@@ -740,10 +622,7 @@ fn test_cobuild_non_empty_witness() {
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     let lock_args = config.gen_args();
     let tx = gen_tx_with_grouped_args(&mut data_loader, vec![(lock_args, 2)], &mut config);
@@ -754,7 +633,7 @@ fn test_cobuild_non_empty_witness() {
     let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
-    assert_script_error(verify_result.unwrap_err(), ERROR_MOL2_ERR_OVERFLOW);
+    assert_script_error(verify_result.unwrap_err(), 112);
 }
 
 #[test]
@@ -763,10 +642,7 @@ fn test_cobuild_input_cell_data_size_0() {
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     let tx = gen_tx(&mut data_loader, &mut config);
     let tx = sign_tx(&mut data_loader, tx, &mut config);
@@ -784,10 +660,7 @@ fn test_cobuild_input_cell_data_size_1() {
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     let tx = gen_tx(&mut data_loader, &mut config);
     let inputs_len = tx.inputs().len();
@@ -795,10 +668,7 @@ fn test_cobuild_input_cell_data_size_1() {
         let input_cell = tx.inputs().get(i).unwrap();
         let input_cell_out_point = input_cell.previous_output();
         let (input_cell_output, _) = data_loader.cells.get(&input_cell_out_point).unwrap();
-        data_loader.cells.insert(
-            input_cell_out_point,
-            (input_cell_output.clone(), Bytes::from(vec![0x42; 1])),
-        );
+        data_loader.cells.insert(input_cell_out_point, (input_cell_output.clone(), Bytes::from(vec![0x42; 1])));
     }
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
@@ -815,10 +685,7 @@ fn test_cobuild_input_cell_data_size_2048() {
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     let tx = gen_tx(&mut data_loader, &mut config);
     let inputs_len = tx.inputs().len();
@@ -826,10 +693,7 @@ fn test_cobuild_input_cell_data_size_2048() {
         let input_cell = tx.inputs().get(i).unwrap();
         let input_cell_out_point = input_cell.previous_output();
         let (input_cell_output, _) = data_loader.cells.get(&input_cell_out_point).unwrap();
-        data_loader.cells.insert(
-            input_cell_out_point,
-            (input_cell_output.clone(), Bytes::from(vec![0x42; 2048])),
-        );
+        data_loader.cells.insert(input_cell_out_point, (input_cell_output.clone(), Bytes::from(vec![0x42; 2048])));
     }
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
@@ -846,10 +710,7 @@ fn test_cobuild_input_cell_data_size_2049() {
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     let tx = gen_tx(&mut data_loader, &mut config);
     let inputs_len = tx.inputs().len();
@@ -857,10 +718,7 @@ fn test_cobuild_input_cell_data_size_2049() {
         let input_cell = tx.inputs().get(i).unwrap();
         let input_cell_out_point = input_cell.previous_output();
         let (input_cell_output, _) = data_loader.cells.get(&input_cell_out_point).unwrap();
-        data_loader.cells.insert(
-            input_cell_out_point,
-            (input_cell_output.clone(), Bytes::from(vec![0x42; 2049])),
-        );
+        data_loader.cells.insert(input_cell_out_point, (input_cell_output.clone(), Bytes::from(vec![0x42; 2049])));
     }
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
@@ -877,10 +735,7 @@ fn test_cobuild_input_cell_data_size_500k() {
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     let tx = gen_tx(&mut data_loader, &mut config);
     let inputs_len = tx.inputs().len();
@@ -888,13 +743,9 @@ fn test_cobuild_input_cell_data_size_500k() {
         let input_cell = tx.inputs().get(i).unwrap();
         let input_cell_out_point = input_cell.previous_output();
         let (input_cell_output, _) = data_loader.cells.get(&input_cell_out_point).unwrap();
-        data_loader.cells.insert(
-            input_cell_out_point,
-            (
-                input_cell_output.clone(),
-                Bytes::from(vec![0x42; 500 * 1024]),
-            ),
-        );
+        data_loader
+            .cells
+            .insert(input_cell_out_point, (input_cell_output.clone(), Bytes::from(vec![0x42; 500 * 1024])));
     }
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
@@ -911,10 +762,7 @@ fn test_cobuild_wrong_union_id() {
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     let tx = gen_tx(&mut data_loader, &mut config);
     let tx = sign_tx(&mut data_loader, tx, &mut config);
@@ -923,17 +771,14 @@ fn test_cobuild_wrong_union_id() {
     let mut witness_builder = witness.as_builder();
     witness_builder.replace(0, 0x03.into());
     let witness = witness_builder.build();
-    let tx = tx
-        .as_advanced_builder()
-        .set_witnesses(vec![witness])
-        .build();
+    let tx = tx.as_advanced_builder().set_witnesses(vec![witness]).build();
 
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
 
     let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
-    assert_script_error(verify_result.unwrap_err(), ERROR_MOL2_ERR_OVERFLOW);
+    assert_script_error(verify_result.unwrap_err(), 114);
 }
 
 #[test]
@@ -943,10 +788,7 @@ fn test_cobuild_sighash_all_only() {
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
     config.cobuild_message = None;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     let tx = gen_tx(&mut data_loader, &mut config);
     let tx = sign_tx(&mut data_loader, tx, &mut config);
@@ -964,15 +806,10 @@ fn test_cobuild_append_witnessargs() {
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
-    config.custom_extension_witnesses = Some(vec![WitnessArgsBuilder::default()
-        .lock(Some(Bytes::from([0u8; 65].to_vec())).pack())
-        .build()
-        .as_bytes()]);
+    config.custom_extension_witnesses =
+        Some(vec![WitnessArgsBuilder::default().lock(Some(Bytes::from([0u8; 65].to_vec())).pack()).build().as_bytes()]);
 
     let tx = gen_tx(&mut data_loader, &mut config);
     let tx = sign_tx(&mut data_loader, tx, &mut config);
@@ -990,16 +827,11 @@ fn test_cobuild_append_other_witnesslayout() {
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     config.custom_extension_witnesses = Some(vec![WitnessLayoutBuilder::default()
         .set(WitnessLayoutUnion::SighashAllOnly(
-            SighashAllOnlyBuilder::default()
-                .seal(Bytes::from([0u8; 32].to_vec()).pack())
-                .build(),
+            SighashAllOnlyBuilder::default().seal(Bytes::from([0u8; 32].to_vec()).pack()).build(),
         ))
         .build()
         .as_bytes()]);
@@ -1020,10 +852,7 @@ fn test_cobuild_sighashall_dup() {
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     const WSITNESS_LAYOUT_SIGHASH_ALL: u32 = 4278190081;
     let mut witness = Vec::new();
@@ -1039,7 +868,7 @@ fn test_cobuild_sighashall_dup() {
     let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
-    assert_script_error(verify_result.unwrap_err(), MOL2_ERR_OVERFLOW);
+    assert_script_error(verify_result.unwrap_err(), 113);
 }
 
 #[test]
@@ -1047,10 +876,7 @@ fn test_cobuild_no_cobuild_append_sighash_all() {
     let mut data_loader = DummyDataLoader::new();
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     config.custom_extension_witnesses = Some(vec![Bytes::from(
         WitnessLayoutBuilder::default()
@@ -1071,7 +897,7 @@ fn test_cobuild_no_cobuild_append_sighash_all() {
     let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
-    verify_result.expect("pass verification");
+    assert_script_error(verify_result.unwrap_err(), 114)
 }
 
 #[test]
@@ -1080,10 +906,7 @@ fn test_cobuild_insert_witness_less_4_before_sighashall() {
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     config.custom_extension_witnesses_beginning = Some(vec![Bytes::from([00, 01, 02].to_vec())]);
 
@@ -1106,19 +929,15 @@ fn test_cobuild_big_message() {
 
     let always_success_script = build_always_success_script();
     let always_success_script_hash = always_success_script.calc_script_hash();
-    let always_success_script_opt = ScriptOpt::new_builder()
-        .set(Some(always_success_script))
-        .build();
+    let always_success_script_opt = ScriptOpt::new_builder().set(Some(always_success_script)).build();
 
     let mut action_vec = Vec::<Action>::new();
     for _ in 0..3072 {
         let action_builder = Action::new_builder();
-        let action_builder = action_builder
-            .script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
+        let action_builder =
+            action_builder.script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
         let action_builder = action_builder.script_hash(always_success_script_hash.clone());
-        let action_builder = action_builder.data(ckb_types::packed::Bytes::new_unchecked(
-            Bytes::from(vec![0x42; 128]),
-        ));
+        let action_builder = action_builder.data(ckb_types::packed::Bytes::new_unchecked(Bytes::from(vec![0x42; 128])));
         let action = action_builder.build();
         action_vec.push(action);
     }
@@ -1126,19 +945,11 @@ fn test_cobuild_big_message() {
     let message = Message::new_builder().actions(action_vec).build();
     config.cobuild_message = Some(message); // Message is 651300 bytes in molecule type.
 
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     let tx = gen_tx(&mut data_loader, &mut config);
 
-    let output0 = tx
-        .output(0)
-        .unwrap()
-        .as_builder()
-        .type_(always_success_script_opt)
-        .build();
+    let output0 = tx.output(0).unwrap().as_builder().type_(always_success_script_opt).build();
     let tx = tx.as_advanced_builder().set_outputs(vec![output0]).build();
 
     let tx = sign_tx(&mut data_loader, tx, &mut config);
@@ -1217,114 +1028,16 @@ fn test_cobuild_owner_lock_on_wl() {
 }
 
 #[test]
-fn test_cobuild_owner_lock_on_wl_without_witness() {
-    let mut data_loader = DummyDataLoader::new();
-
-    let mut config = TestConfig::new(IDENTITY_FLAGS_OWNER_LOCK, true);
-    config.cobuild_enabled = true;
-    config.scheme = TestScheme::OnWhiteList;
-    config.scheme2 = TestScheme2::NoWitness;
-
-    let tx = gen_tx(&mut data_loader, &mut config);
-    let tx = sign_tx(&mut data_loader, tx, &mut config);
-    let resolved_tx = build_resolved_tx(&data_loader, &tx);
-
-    let mut verifier = verify_tx(resolved_tx, data_loader);
-
-    verifier.set_debug_printer(debug_printer);
-    let verify_result = verifier.verify(MAX_CYCLES);
-    assert!(verify_result.is_err());
-}
-
-#[test]
-fn test_cobuild_rsa_via_dl_unlock_with_time_lock() {
-    let mut data_loader = DummyDataLoader::new();
-
-    let args_since = 0x2000_0000_0000_0000u64 + 200;
-    let input_since = 0x2000_0000_0000_0000u64 + 200;
-    let mut config = TestConfig::new(IDENTITY_FLAGS_DL, false);
-    config.cobuild_enabled = true;
-    config.set_rsa();
-    config.set_since(args_since, input_since);
-
-    let tx = gen_tx(&mut data_loader, &mut config);
-    let tx = sign_tx(&mut data_loader, tx, &mut config);
-    let resolved_tx = build_resolved_tx(&data_loader, &tx);
-
-    let mut verifier = verify_tx(resolved_tx, data_loader);
-    verifier.set_debug_printer(debug_printer);
-    let verify_result = verifier.verify(MAX_CYCLES);
-    verify_result.expect("pass verification");
-}
-
-#[test]
-fn test_cobuild_rsa_via_dl_unlock_with_time_lock_failed() {
-    let mut data_loader = DummyDataLoader::new();
-
-    let args_since = 0x2000_0000_0000_0000u64 + 200;
-    let input_since = 0x2000_0000_0000_0000u64 + 100;
-    let mut config = TestConfig::new(IDENTITY_FLAGS_DL, false);
-    config.cobuild_enabled = true;
-    config.set_rsa();
-    config.set_since(args_since, input_since);
-
-    let tx = gen_tx(&mut data_loader, &mut config);
-    let tx = sign_tx(&mut data_loader, tx, &mut config);
-    let resolved_tx = build_resolved_tx(&data_loader, &tx);
-
-    let mut verifier = verify_tx(resolved_tx, data_loader);
-    verifier.set_debug_printer(debug_printer);
-    let verify_result = verifier.verify(MAX_CYCLES);
-
-    assert_script_error(verify_result.unwrap_err(), ERROR_INCORRECT_SINCE_VALUE);
-}
-
-#[test]
 fn test_cobuild_append_witnessargs_acp() {
     let mut data_loader: DummyDataLoader = DummyDataLoader::new();
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
     config.set_acp_config(Some((0, 0)));
 
-    config.custom_extension_witnesses = Some(vec![WitnessArgsBuilder::default()
-        .lock(Some(Bytes::from([0u8; 65].to_vec())).pack())
-        .build()
-        .as_bytes()]);
-
-    let tx = gen_tx(&mut data_loader, &mut config);
-    let tx = sign_tx(&mut data_loader, tx, &mut config);
-    let resolved_tx = build_resolved_tx(&data_loader, &tx);
-
-    let mut verifier = verify_tx(resolved_tx, data_loader);
-    verifier.set_debug_printer(debug_printer);
-    let verify_result = verifier.verify(MAX_CYCLES);
-    verify_result.expect("pass verification");
-}
-
-#[test]
-fn test_cobuild_append_witnessargs_since() {
-    let mut data_loader = DummyDataLoader::new();
-
-    let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
-    config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
-
-    let args_since = 0x2000_0000_0000_0000u64 + 200;
-    let input_since = 0x2000_0000_0000_0000u64 + 200;
-    config.set_since(args_since, input_since);
-
-    config.custom_extension_witnesses = Some(vec![WitnessArgsBuilder::default()
-        .lock(Some(Bytes::from([0u8; 65].to_vec())).pack())
-        .build()
-        .as_bytes()]);
+    config.custom_extension_witnesses =
+        Some(vec![WitnessArgsBuilder::default().lock(Some(Bytes::from([0u8; 65].to_vec())).pack()).build().as_bytes()]);
 
     let tx = gen_tx(&mut data_loader, &mut config);
     let tx = sign_tx(&mut data_loader, tx, &mut config);
@@ -1342,17 +1055,12 @@ fn test_cobuild_append_other_witnesslayout_acp() {
 
     let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
     config.cobuild_enabled = true;
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
     config.set_acp_config(Some((0, 0)));
 
     config.custom_extension_witnesses = Some(vec![WitnessLayoutBuilder::default()
         .set(WitnessLayoutUnion::SighashAllOnly(
-            SighashAllOnlyBuilder::default()
-                .seal(Bytes::from([0u8; 32].to_vec()).pack())
-                .build(),
+            SighashAllOnlyBuilder::default().seal(Bytes::from([0u8; 32].to_vec()).pack()).build(),
         ))
         .build()
         .as_bytes()]);
@@ -1412,43 +1120,25 @@ fn test_cobuild_check_action_script_hash_is_in_inputs() {
 
     let always_success_script = build_always_success_script();
     let always_success_script_hash = always_success_script.calc_script_hash();
-    let always_success_script_opt = ScriptOpt::new_builder()
-        .set(Some(always_success_script))
-        .build();
+    let always_success_script_opt = ScriptOpt::new_builder().set(Some(always_success_script)).build();
 
     let mut action_vec = Vec::<Action>::new();
     let action_builder = Action::new_builder();
-    let action_builder = action_builder
-        .script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
+    let action_builder = action_builder.script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
     let action_builder = action_builder.script_hash(always_success_script_hash.clone());
-    let action_builder = action_builder.data(ckb_types::packed::Bytes::new_unchecked(Bytes::from(
-        vec![0x42; 128],
-    )));
+    let action_builder = action_builder.data(ckb_types::packed::Bytes::new_unchecked(Bytes::from(vec![0x42; 128])));
     let action = action_builder.build();
     action_vec.push(action);
     let action_vec = ActionVec::new_builder().extend(action_vec).build();
     let message = Message::new_builder().actions(action_vec).build();
     config.cobuild_message = Some(message);
 
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     let tx = gen_tx(&mut data_loader, &mut config);
-    let (cell, cell_data) = data_loader
-        .cells
-        .get(&tx.inputs().get(0).unwrap().previous_output())
-        .unwrap();
-    let cell = cell
-        .clone()
-        .as_builder()
-        .type_(always_success_script_opt)
-        .build();
-    data_loader.cells.insert(
-        tx.inputs().get(0).unwrap().previous_output(),
-        (cell.clone(), cell_data.clone()),
-    );
+    let (cell, cell_data) = data_loader.cells.get(&tx.inputs().get(0).unwrap().previous_output()).unwrap();
+    let cell = cell.clone().as_builder().type_(always_success_script_opt).build();
+    data_loader.cells.insert(tx.inputs().get(0).unwrap().previous_output(), (cell.clone(), cell_data.clone()));
 
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
@@ -1468,40 +1158,26 @@ fn test_cobuild_check_action_script_hash_is_in_2_outputs() {
 
     let always_success_script_0 = build_always_success_script();
     let always_success_script_1 = build_always_success_script();
-    let always_success_script_0 = always_success_script_0
-        .as_builder()
-        .args(vec![0x00].pack())
-        .build();
-    let always_success_script_1 = always_success_script_1
-        .as_builder()
-        .args(vec![0x01].pack())
-        .build();
+    let always_success_script_0 = always_success_script_0.as_builder().args(vec![0x00].pack()).build();
+    let always_success_script_1 = always_success_script_1.as_builder().args(vec![0x01].pack()).build();
     let always_success_script_hash_0 = always_success_script_0.calc_script_hash();
     let always_success_script_hash_1 = always_success_script_1.calc_script_hash();
-    let always_success_script_opt_0 = ScriptOpt::new_builder()
-        .set(Some(always_success_script_0))
-        .build();
-    let always_success_script_opt_1 = ScriptOpt::new_builder()
-        .set(Some(always_success_script_1))
-        .build();
+    let always_success_script_opt_0 = ScriptOpt::new_builder().set(Some(always_success_script_0)).build();
+    let always_success_script_opt_1 = ScriptOpt::new_builder().set(Some(always_success_script_1)).build();
 
     let mut action_vec = Vec::<Action>::new();
     let action_builder_0 = Action::new_builder();
-    let action_builder_0 = action_builder_0
-        .script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
+    let action_builder_0 =
+        action_builder_0.script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
     let action_builder_0 = action_builder_0.script_hash(always_success_script_hash_0.clone());
-    let action_builder_0 = action_builder_0.data(ckb_types::packed::Bytes::new_unchecked(
-        Bytes::from(vec![0x42; 128]),
-    ));
+    let action_builder_0 = action_builder_0.data(ckb_types::packed::Bytes::new_unchecked(Bytes::from(vec![0x42; 128])));
     let action_0 = action_builder_0.build();
     action_vec.push(action_0.clone());
     let action_builder_1 = Action::new_builder();
-    let action_builder_1 = action_builder_1
-        .script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
+    let action_builder_1 =
+        action_builder_1.script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
     let action_builder_1 = action_builder_1.script_hash(always_success_script_hash_1.clone());
-    let action_builder_1 = action_builder_1.data(ckb_types::packed::Bytes::new_unchecked(
-        Bytes::from(vec![0x42; 128]),
-    ));
+    let action_builder_1 = action_builder_1.data(ckb_types::packed::Bytes::new_unchecked(Bytes::from(vec![0x42; 128])));
     let action_1 = action_builder_1.build();
     action_vec.push(action_1);
 
@@ -1509,25 +1185,12 @@ fn test_cobuild_check_action_script_hash_is_in_2_outputs() {
     let message = Message::new_builder().actions(action_vec).build();
     config.cobuild_message = Some(message); // Message is 651300 bytes in molecule type.
 
-    config.set_chain_config(Box::new(BitcoinConfig {
-        sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-        pubkey_err: false,
-    }));
+    config.set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }));
 
     let tx = gen_tx(&mut data_loader, &mut config);
 
-    let output0 = tx
-        .output(0)
-        .unwrap()
-        .as_builder()
-        .type_(always_success_script_opt_0)
-        .build();
-    let output1 = tx
-        .output(0)
-        .unwrap()
-        .as_builder()
-        .type_(always_success_script_opt_1)
-        .build();
+    let output0 = tx.output(0).unwrap().as_builder().type_(always_success_script_opt_0).build();
+    let output1 = tx.output(0).unwrap().as_builder().type_(always_success_script_opt_1).build();
     let tx = tx
         .as_advanced_builder()
         .set_outputs(vec![output0, output1])

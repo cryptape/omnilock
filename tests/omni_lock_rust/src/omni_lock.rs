@@ -36,9 +36,7 @@ impl ::core::fmt::Display for Auth {
 }
 impl ::core::default::Default for Auth {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
+        let v: Vec<u8> = vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         Auth::new_unchecked(v.into())
     }
 }
@@ -436,8 +434,7 @@ impl molecule::prelude::Builder for AuthBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         Auth::new_unchecked(inner.into())
     }
 }
@@ -472,8 +469,8 @@ impl ::core::fmt::Display for Identity {
 impl ::core::default::Default for Identity {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            37, 0, 0, 0, 12, 0, 0, 0, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 4, 0, 0, 0,
+            37, 0, 0, 0, 12, 0, 0, 0, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0,
+            0, 0,
         ];
         Identity::new_unchecked(v.into())
     }
@@ -538,9 +535,7 @@ impl molecule::prelude::Entity for Identity {
         ::core::default::Default::default()
     }
     fn as_builder(self) -> Self::Builder {
-        Self::new_builder()
-            .identity(self.identity())
-            .proofs(self.proofs())
+        Self::new_builder().identity(self.identity()).proofs(self.proofs())
     }
 }
 #[derive(Clone, Copy)]
@@ -680,9 +675,7 @@ impl molecule::prelude::Builder for IdentityBuilder {
     type Entity = Identity;
     const NAME: &'static str = "IdentityBuilder";
     fn expected_length(&self) -> usize {
-        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
-            + self.identity.as_slice().len()
-            + self.proofs.as_slice().len()
+        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1) + self.identity.as_slice().len() + self.proofs.as_slice().len()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
         let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
@@ -701,8 +694,7 @@ impl molecule::prelude::Builder for IdentityBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         Identity::new_unchecked(inner.into())
     }
 }
@@ -851,21 +843,14 @@ impl molecule::prelude::Builder for IdentityOptBuilder {
     type Entity = IdentityOpt;
     const NAME: &'static str = "IdentityOptBuilder";
     fn expected_length(&self) -> usize {
-        self.0
-            .as_ref()
-            .map(|ref inner| inner.as_slice().len())
-            .unwrap_or(0)
+        self.0.as_ref().map(|ref inner| inner.as_slice().len()).unwrap_or(0)
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
-        self.0
-            .as_ref()
-            .map(|ref inner| writer.write_all(inner.as_slice()))
-            .unwrap_or(Ok(()))
+        self.0.as_ref().map(|ref inner| writer.write_all(inner.as_slice())).unwrap_or(Ok(()))
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         IdentityOpt::new_unchecked(inner.into())
     }
 }
@@ -970,10 +955,7 @@ impl molecule::prelude::Entity for OmniLockWitnessLock {
         ::core::default::Default::default()
     }
     fn as_builder(self) -> Self::Builder {
-        Self::new_builder()
-            .signature(self.signature())
-            .omni_identity(self.omni_identity())
-            .preimage(self.preimage())
+        Self::new_builder().signature(self.signature()).omni_identity(self.omni_identity()).preimage(self.preimage())
     }
 }
 #[derive(Clone, Copy)]
@@ -1151,8 +1133,7 @@ impl molecule::prelude::Builder for OmniLockWitnessLockBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         OmniLockWitnessLock::new_unchecked(inner.into())
     }
 }

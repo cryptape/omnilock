@@ -1,15 +1,15 @@
+// in secp256k1_ctz64_var: we don't have __builtin_ctzl in gcc for RISC-V
+#define __builtin_ctzl secp256k1_ctz64_var_debruijn
+// clang-format off
+#include <stdio.h>
 // it's used by blockchain-api2.h, the behavior when panic
 #ifndef MOL2_EXIT
 #define MOL2_EXIT ckb_exit
 #endif
 int ckb_exit(signed char);
-// in secp256k1_ctz64_var: we don't have __builtin_ctzl in gcc for RISC-V
-#define __builtin_ctzl secp256k1_ctz64_var_debruijn
-
-// clang-format off
-#include <stdio.h>
-#include "blockchain-api2.h"
 #define MOLECULEC_VERSION 7000
+
+#include "blockchain-api2.h"
 #include "blockchain.h"
 #include "ckb_consts.h"
 
@@ -83,7 +83,7 @@ typedef struct ArgsType {
   uint8_t info_cell[32];  // type script hash
 } ArgsType;
 
-// parsed from lock in witness
+// parsed from lock in witness or seal
 typedef struct WitnessLockType {
   bool has_identity;
   bool has_signature;
@@ -97,6 +97,8 @@ typedef struct WitnessLockType {
 
   SmtProofEntryVecType proofs;
 } WitnessLockType;
+
+uint8_t g_code_buff[MAX_CODE_SIZE] __attribute__((aligned(RISCV_PGSIZE)));
 
 // make compiler happy
 int make_cursor_from_witness(WitnessArgsType *witness, bool *_input) {
@@ -312,33 +314,14 @@ exit:
   return err;
 }
 
-int parse_witness_lock(WitnessLockType *witness_lock, mol2_cursor_t *seal) {
+static int parse_witness_lock(WitnessLockType *witness_lock,
+                              mol2_cursor_t *seal) {
   int err = 0;
   witness_lock->has_signature = false;
   witness_lock->has_identity = false;
   witness_lock->has_proofs = false;
-  bool witness_existing = false;
-  mol2_cursor_t mol_lock_bytes = {0};
-
-  if (seal) {
-    mol_lock_bytes = *seal;
-    witness_existing = true;
-  } else {
-    WitnessArgsType witness_args;
-    err = make_witness(&witness_args);
-    CHECK(err);
-    witness_existing = witness_args.cur.size > 0;
-
-    // witness or witness lock can be empty if owner lock without omni is used
-    if (!witness_existing) return err;
-
-    BytesOptType mol_lock = witness_args.t->lock(&witness_args);
-    if (mol_lock.t->is_none(&mol_lock)) return err;
-    mol_lock_bytes = mol_lock.t->unwrap(&mol_lock);
-  }
   // convert Bytes to OmniLockWitnessLock
-  OmniLockWitnessLockType mol_witness_lock =
-      make_OmniLockWitnessLock(&mol_lock_bytes);
+  OmniLockWitnessLockType mol_witness_lock = make_OmniLockWitnessLock(seal);
   IdentityOptType identity_opt =
       mol_witness_lock.t->omni_identity(&mol_witness_lock);
   witness_lock->has_identity = identity_opt.t->is_some(&identity_opt);
@@ -380,41 +363,38 @@ exit:
   return err;
 }
 
-#ifdef CKB_USE_SIM
-int simulator_main() {
-#else
-int main() {
-#endif
-  // don't move code_buff into global variable. It doesn't work.
-  // it's a ckb-vm bug: the global variable will be freezed:
-  // https://github.com/nervosnetwork/ckb-vm/blob/d43f58d6bf8cc6210721fdcdb6e5ecba513ade0c/src/machine/elf_adaptor.rs#L28-L32
-  // The code can't be loaded into frozen memory.
-  uint8_t code_buff[MAX_CODE_SIZE] __attribute__((aligned(RISCV_PGSIZE)));
-
+static int get_witness_args_lock(mol2_cursor_t *lock, bool *witness_existing) {
   int err = 0;
+  WitnessArgsType witness_args;
+  err = make_witness(&witness_args);
+  CHECK(err);
+  *witness_existing = witness_args.cur.size > 0;
 
-  WitnessLockType witness_lock = {0};
+  // witness or witness lock can be empty if owner lock without omni is used
+  if (!*witness_existing) return 0;
+
+  BytesOptType mol_lock = witness_args.t->lock(&witness_args);
+  if (mol_lock.t->is_some(&mol_lock)) {
+    *lock = mol_lock.t->unwrap(&mol_lock);
+  }
+exit:
+  return err;
+}
+
+int omnilock_entry(const uint8_t *smh, mol2_cursor_t seal,
+                   bool witness_existing) {
+  int err = 0;
   ArgsType args = {0};
+  WitnessLockType witness_lock = {0};
+
   // this identity can be either from witness lock (witness_lock.id) or script
   // args (args.id)
   CkbIdentityType identity = {0};
-
-  mol2_cursor_t seal = {0};
-  /*
-   * When it fails, WitnessArgs is used. No cobuild enabled.
-   */
-  err = ckb_parse_message(g_cobuild_signing_message_hash, &seal);
-  if (err) {
-    printf("cobuild disabled");
-    g_cobuild_enabled = false;
-    err = parse_witness_lock(&witness_lock, NULL);
-  } else {
-    printf("cobuild enabled");
-    g_cobuild_enabled = true;
+  // In some scenarios(e.g. owner lock), corresponding witness doesn't exist
+  if (witness_existing) {
     err = parse_witness_lock(&witness_lock, &seal);
+    CHECK(err);
   }
-  CHECK(err);
-  printf("parse_witness_lock done");
 
   err = parse_args(&args);
   CHECK(err);
@@ -465,11 +445,38 @@ int main() {
       return check_payment_unlock(min_ckb_amount, min_udt_amount);
     }
   }
-  ckb_identity_init_code_buffer(code_buff, MAX_CODE_SIZE);
+  ckb_identity_init_code_buffer(g_code_buff, MAX_CODE_SIZE);
   err = ckb_verify_identity(&identity, witness_lock.signature,
                             witness_lock.signature_size, witness_lock.preimage,
-                            witness_lock.preimage_size);
+                            witness_lock.preimage_size, smh);
   CHECK(err);
+exit:
+  return err;
+}
+
+#ifdef CKB_USE_SIM
+int simulator_main() {
+#else
+int main() {
+#endif
+  int err = 0;
+  bool cobuild_enabled = false;
+  err = ckb_cobuild_entry(omnilock_entry, &cobuild_enabled);
+  CHECK(err);
+  printf("cobuild_enabled = %d", cobuild_enabled);
+  if (!cobuild_enabled) {
+    bool witness_existing = true;
+    uint8_t smh[BLAKE2B_BLOCK_SIZE] = {0};
+    mol2_cursor_t lock = {0};
+    err = get_witness_args_lock(&lock, &witness_existing);
+    CHECK(err);
+    if (witness_existing) {
+      err = generate_sighash_all(smh, BLAKE2B_BLOCK_SIZE);
+      CHECK(err);
+    }
+    err = omnilock_entry(smh, lock, witness_existing);
+    CHECK(err);
+  }
 exit:
   return err;
 }
