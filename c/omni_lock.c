@@ -1,5 +1,3 @@
-// in secp256k1_ctz64_var: we don't have __builtin_ctzl in gcc for RISC-V
-#define __builtin_ctzl secp256k1_ctz64_var_debruijn
 // clang-format off
 #include <stdio.h>
 // it's used by blockchain-api2.h, the behavior when panic
@@ -20,9 +18,9 @@ int ckb_exit(signed char);
 #else
 #include "ckb_syscalls.h"
 #endif
-// secp256k1_helper_20210801.h is not part of ckb-c-stdlib, can't be included in ckb_identity.h
+// secp256k1_helper.h is not part of ckb-c-stdlib, can't be included in ckb_identity.h
 // An upgraded version is provided.
-#include "secp256k1_helper_20210801.h"
+#include "secp256k1_helper.h"
 #include "ckb_swappable_signatures.h"
 
 #include "ckb_identity.h"

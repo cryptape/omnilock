@@ -179,7 +179,7 @@ pub fn println_rtx(tx_resolved: &ckb_types::core::cell::ResolvedTransaction) {
 }
 
 static BINARY_ALWAYS_SUCCESS: &[u8] = include_bytes!("../../../build/always_success");
-static BINARY_SECP256K1_DATA: &[u8] = include_bytes!("../../../build/secp256k1_data_20210801");
+static BINARY_SECP256K1_DATA: &[u8] = include_bytes!("../../../build/secp256k1_data");
 static BINARY_OMNI_LOCK: &[u8] = include_bytes!("../../../build/omni_lock");
 
 pub const IDENTITY_FLAGS_PUBKEY_HASH: u8 = 0;

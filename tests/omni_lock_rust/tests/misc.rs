@@ -111,8 +111,7 @@ pub const COMMON_PREFIX: &str = "CKB transaction: 0x";
 lazy_static! {
     pub static ref OMNI_LOCK: Bytes = Bytes::from(&include_bytes!("../../../build/omni_lock")[..]);
     pub static ref SIMPLE_UDT: Bytes = Bytes::from(&include_bytes!("../../../build/simple_udt")[..]);
-    pub static ref SECP256K1_DATA_BIN: Bytes =
-        Bytes::from(&include_bytes!("../../../build/secp256k1_data_20210801")[..]);
+    pub static ref SECP256K1_DATA_BIN: Bytes = Bytes::from(&include_bytes!("../../../build/secp256k1_data")[..]);
     pub static ref ALWAYS_SUCCESS: Bytes = Bytes::from(&include_bytes!("../../../build/always_success")[..]);
     pub static ref VALIDATE_SIGNATURE_RSA: Bytes =
         Bytes::from(&include_bytes!("../../../build/validate_signature_rsa")[..]);

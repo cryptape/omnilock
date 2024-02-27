@@ -2,13 +2,12 @@ TARGET := riscv64-unknown-linux-gnu
 CC := $(TARGET)-gcc
 LD := $(TARGET)-gcc
 OBJCOPY := $(TARGET)-objcopy
-CFLAGS := -fPIC -O3 -fno-builtin-printf -fno-builtin-memcmp -nostdinc -nostdlib -nostartfiles -fvisibility=hidden -fdata-sections -ffunction-sections -I deps/secp256k1/src -I deps/secp256k1 -I deps/ckb-c-std-lib -I deps/ckb-c-std-lib/libc -I deps/ckb-c-std-lib/molecule -I c -I build -Wall -Werror -Wno-nonnull -Wno-nonnull-compare -Wno-unused-function -g
+CFLAGS := -fPIC -O3 -fno-builtin-printf -fno-builtin-memcmp -nostdinc -nostdlib -nostartfiles -fvisibility=hidden -fdata-sections -ffunction-sections -I deps/secp256k1/src -I deps/secp256k1 -I deps/ckb-c-stdlib -I deps/ckb-c-stdlib/libc -I deps/ckb-c-stdlib/molecule -I c -I build -Wall -Werror -Wno-nonnull -Wno-nonnull-compare -Wno-unused-function -g
 LDFLAGS := -nostdlib -nostartfiles -fno-builtin -Wl,-static -Wl,--gc-sections
-SECP256K1_SRC_20210801 := deps/secp256k1-20210801/src/ecmult_static_pre_context.h
+SECP256K1_SRC := deps/secp256k1/src/ecmult_static_pre_context.h
 
 
-OMNI_LOCK_CFLAGS :=$(subst ckb-c-std-lib,ckb-c-stdlib-20210801,$(CFLAGS)) -I deps/sparse-merkle-tree/c
-OMNI_LOCK_CFLAGS := $(subst secp256k1,secp256k1-20210801,$(OMNI_LOCK_CFLAGS))
+OMNI_LOCK_CFLAGS :=$(CFLAGS) -I deps/sparse-merkle-tree/c
 # enable log
 OMNI_LOCK_CFLAGS += -DCKB_C_STDLIB_PRINTF -DCKB_C_STDLIB_PRINTF_BUFFER_SIZE=1024
 
@@ -35,16 +34,16 @@ build/always_success: c/always_success.c
 	$(OBJCOPY) --only-keep-debug $@ $@.debug
 	$(OBJCOPY) --strip-debug --strip-all $@
 
-build/secp256k1_data_info_20210801.h: build/dump_secp256k1_data_20210801
+build/secp256k1_data_info.h: build/dump_secp256k1_data
 	$<
 
-build/dump_secp256k1_data_20210801: c/dump_secp256k1_data_20210801.c $(SECP256K1_SRC_20210801)
+build/dump_secp256k1_data: c/dump_secp256k1_data.c $(SECP256K1_SRC)
 	mkdir -p build
-	gcc -I deps/secp256k1-20210801/src -I deps/secp256k1-20210801 -o $@ $<
+	gcc -I deps/secp256k1/src -I deps/secp256k1 -o $@ $<
 
 
-$(SECP256K1_SRC_20210801):
-	cd deps/secp256k1-20210801 && \
+$(SECP256K1_SRC):
+	cd deps/secp256k1 && \
 		./autogen.sh && \
 		CC=$(CC) LD=$(LD) ./configure --enable-ecmult-static-precomputation --with-ecmult-window=6 --enable-module-recovery --host=$(TARGET) && \
 		make src/ecmult_static_pre_context.h src/ecmult_static_context.h
@@ -80,7 +79,7 @@ omni_lock_mol:
 build/cobuild.o: c/cobuild.c c/cobuild.h
 	$(CC) -c $(OMNI_LOCK_CFLAGS) -o $@ $<
 
-build/omni_lock.o: c/omni_lock.c c/omni_lock_supply.h c/omni_lock_acp.h build/secp256k1_data_info_20210801.h $(SECP256K1_SRC_20210801) c/ckb_identity.h
+build/omni_lock.o: c/omni_lock.c c/omni_lock_supply.h c/omni_lock_acp.h build/secp256k1_data_info.h $(SECP256K1_SRC) c/ckb_identity.h
 	$(CC) -c $(OMNI_LOCK_CFLAGS) -o $@ $<
 
 build/omni_lock: build/omni_lock.o build/cobuild.o
@@ -95,9 +94,9 @@ cobuild_mol:
 	moleculec-c2 --input build/cobuild_basic_mol2.json | clang-format -style=Google > c/cobuild_basic_mol2.h
 
 clean: clean2
-	rm -rf build/secp256k1_data_info_20210801.h build/dump_secp256k1_data_20210801
-	rm -f build/secp256k1_data_20210801
-	cd deps/secp256k1-20210801 && [ -f "Makefile" ] && make clean
+	rm -rf build/secp256k1_data_info.h build/dump_secp256k1_data
+	rm -f build/secp256k1_data
+	cd deps/secp256k1 && [ -f "Makefile" ] && make clean
 
 clean2:
 	rm -rf build/*.debug

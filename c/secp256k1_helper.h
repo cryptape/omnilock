@@ -2,7 +2,7 @@
 #define CKB_SECP256K1_HELPER_H_
 
 #include "ckb_syscalls.h"
-#include "secp256k1_data_info_20210801.h"
+#include "secp256k1_data_info.h"
 
 #define CKB_SECP256K1_HELPER_ERROR_LOADING_DATA -101
 #define CKB_SECP256K1_HELPER_ERROR_ILLEGAL_CALLBACK -102

@@ -657,7 +657,7 @@ int ckb_load_cell_data(void* addr, uint64_t* len, size_t offset, size_t index,
                        size_t source) {
   if (source == CKB_SOURCE_CELL_DEP && index == SPECIAL_SECP256K1_INDEX) {
     ASSERT(*len == 1048576);
-    FILE* input = fopen("build/secp256k1_data_20210801", "rb");
+    FILE* input = fopen("build/secp256k1_data", "rb");
     size_t read_item = fread(addr, *len, 1, input);
     ASSERT(read_item == 1);
 

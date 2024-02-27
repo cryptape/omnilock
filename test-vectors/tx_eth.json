@@ -80,7 +80,7 @@
                     },
                     "type": null
                 },
-                "data": "0x{{ data ../build/secp256k1_data_20210801 }}",
+                "data": "0x{{ data ../build/secp256k1_data }}",
                 "header": null
             },
             {
