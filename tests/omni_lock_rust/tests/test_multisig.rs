@@ -336,6 +336,45 @@ fn test_multisig_0_2_3_unlock_with_since_eq() {
 }
 
 #[test]
+fn test_multisig_0_2_3_unlock_with_since_relative_eq() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = 0x8000_0000_8888_8888u64;
+    config.set_since(since, since);
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    verify_result.expect("pass verification");
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_relative_not_comparable() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = 0x8000_0000_8888_8888u64;
+    let since2 = 0x0000_0000_8888_8888u64;
+    config.set_since(since, since2);
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    assert_script_error(verify_result.unwrap_err(), ERROR_INCORRECT_SINCE_FLAGS)
+}
+
+#[test]
 fn test_multisig_0_2_3_unlock_with_since_flags() {
     let mut data_loader = DummyDataLoader::new();
 
