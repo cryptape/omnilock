@@ -16,7 +16,10 @@ void debug_print_hex(const char* prefix, const uint8_t* buf, size_t length) {
   printf("\n");
 }
 
-int ckb_cobuild_entry(ScriptEntryType, bool* cobuild_enabled) {
+int ckb_cobuild_entry(const Env* env, ScriptEntryType entry, bool* cobuild_enabled) {
+  (void) env;
+  (void) entry;
+
   *cobuild_enabled = false;
   return 0;
 }

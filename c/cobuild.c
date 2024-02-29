@@ -16,9 +16,15 @@ int ckb_exit(signed char);
 #include "molecule2_reader.h"
 #include "blockchain-api2.h"
 #include "cobuild_basic_mol2.h"
+#include "cobuild_top_level_mol2.h"
 #include "cobuild.h"
 
-#include "blake2b_decl_only.h"
+#define BLAKE2_IMPL_H
+#define BLAKE2_REF_C
+#include "blake2b.h"
+#undef BLAKE2_REF_C
+#undef BLAKE2_IMPL_H
+
 #include "ckb_consts.h"
 #include "ckb_syscall_apis.h"
 // clang-format on
@@ -76,6 +82,8 @@ enum CobuildErrorCode {
   ERROR_WRONG_OTX,
   ERROR_NOT_COBUILD,
   ERROR_NO_CALLBACK,
+  ERROR_MOL2_UNEXPECTED,
+  ERROR_OVERFLOW,
 };
 
 typedef enum WitnessLayoutId {
@@ -106,12 +114,6 @@ typedef struct Otx {
 const char *PERSONAL_SIGHASH_ALL = "ckb-tcob-sighash";
 const char *PERSONAL_SIGHASH_ALL_ONLY = "ckb-tcob-sgohash";
 const char *PERSONAL_OTX = "ckb-tcob-otxhash";
-
-/*
-  The seal cursor uses this data source. So the lifetime of data source should
-  be long enough.
- */
-static uint8_t g_cobuild_seal_data_source[DEFAULT_DATA_SOURCE_LENGTH];
 
 #ifdef CKB_C_STDLIB_PRINTF
 
@@ -206,6 +208,31 @@ int new_otx_blake2b(blake2b_state *S) {
   return ckb_blake2b_init_personal(S, 32, PERSONAL_OTX);
 }
 
+static inline int get_witness_layout(BytesVecType witnesses, uint32_t index,
+                                     WitnessLayoutType *witness_layout) {
+  bool existing = false;
+  mol2_cursor_t witness = witnesses.t->get(&witnesses, index, &existing);
+  if (!existing) {
+    return ERROR_MOL2_UNEXPECTED;
+  }
+
+  uint32_t id = 0;
+  int err = try_union_unpack_id(&witness, &id);
+  if (err != 0) {
+    return err;
+  }
+  // TODO: validate full WitnessLayout structure
+  if (id == WitnessLayoutSighashAll || id == WitnessLayoutSighashAllOnly ||
+      id == WitnessLayoutOtx || id == WitnessLayoutOtxStart) {
+    if (witness_layout != NULL) {
+      *witness_layout = make_WitnessLayout(&witness);
+    }
+    return 0;
+  } else {
+    return ERROR_GENERAL;
+  }
+}
+
 // for lock script with message, the other witness in script group except first
 // one should be empty
 int ckb_check_others_in_group() {
@@ -222,274 +249,102 @@ exit:
   return err;
 }
 
-typedef uint32_t(read_from_t)(uintptr_t arg[], uint8_t *ptr, uint32_t len,
-                              uint32_t offset);
-
-static uint32_t read_from_witness(uintptr_t arg[], uint8_t *ptr, uint32_t len,
-                                  uint32_t offset) {
-  int err = ERROR_GENERAL;
-  uint64_t output_len = len;
-  err = ckb_load_witness(ptr, &output_len, offset, arg[0], arg[1]);
-  if (err != 0) {
-    return 0;
-  }
-  if (output_len > len) {
-    return len;
-  } else {
-    return (uint32_t)output_len;
-  }
-}
-
-static uint32_t read_from_cell_data(uintptr_t arg[], uint8_t *ptr, uint32_t len,
-                                    uint32_t offset) {
-  int err;
-  uint64_t output_len = len;
-  err = ckb_load_cell_data(ptr, &output_len, offset, arg[0], arg[1]);
-  if (err != 0) {
-    return 0;
-  }
-  if (output_len > len) {
-    return len;
-  } else {
-    return (uint32_t)output_len;
-  }
-}
-
-static uint32_t read_from_cell(uintptr_t arg[], uint8_t *ptr, uint32_t len,
-                               uint32_t offset) {
-  int err;
-  uint64_t output_len = len;
-  err = ckb_load_cell(ptr, &output_len, offset, arg[0], arg[1]);
-  if (err != 0) {
-    return 0;
-  }
-  if (output_len > len) {
-    return len;
-  } else {
-    return (uint32_t)output_len;
-  }
-}
-
-static uint32_t read_from_tx(uintptr_t arg[], uint8_t *ptr, uint32_t len,
-                             uint32_t offset) {
-  int err;
-  uint64_t output_len = len;
-  err = ckb_load_transaction(ptr, &output_len, offset);
-  if (err != 0) {
-    return 0;
-  }
-  if (output_len > len) {
-    return len;
-  } else {
-    return (uint32_t)output_len;
-  }
-}
-
-void ckb_new_cursor(mol2_cursor_t *cursor, uint32_t total_len,
-                    read_from_t read_from, uint8_t *data_source,
-                    uint32_t cache_len, size_t index, size_t source) {
-  cursor->offset = 0;
-  cursor->size = (uint32_t)total_len;
-
-  mol2_data_source_t *ptr = (mol2_data_source_t *)data_source;
-
-  ptr->read = read_from;
-  ptr->total_size = total_len;
-  ptr->args[0] = index;
-  ptr->args[1] = source;
-
-  ptr->cache_size = 0;
-  ptr->start_point = 0;
-  ptr->max_cache_size = cache_len;
-
-  cursor->data_source = ptr;
-}
-
-int ckb_new_witness_cursor(mol2_cursor_t *cursor, uint8_t *data_source,
-                           uint32_t cache_len, size_t index, size_t source) {
-  int err = ERROR_GENERAL;
-  uint64_t len = 0;
-  err = ckb_load_witness(0, &len, 0, index, source);
-  CHECK(err);
-  ckb_new_cursor(cursor, len, read_from_witness, data_source, cache_len, index,
-                 source);
-
-exit:
-  return err;
-}
-
-int ckb_hash_cursor(blake2b_state *ctx, mol2_cursor_t cursor) {
-  // one batch to drain whole cache perfectly
-  // tested by test_input_cell_data_size_0
-  //           test_input_cell_data_size_1
-  //           test_input_cell_data_size_2048
-  //           test_input_cell_data_size_2049
-  //           test_input_cell_data_size_500k
-  uint8_t batch[MAX_CACHE_SIZE];
-  while (true) {
-    uint32_t read_len = mol2_read_at(&cursor, batch, sizeof(batch));
-    BLAKE2B_UPDATE(ctx, batch, read_len);
-    // adjust cursor
-    mol2_add_offset(&cursor, read_len);
-    mol2_sub_size(&cursor, read_len);
-    mol2_validate(&cursor);
-    if (cursor.size == 0) {
-      break;
-    }
-  }
-  return 0;
-}
-
-static uint32_t try_union_unpack_id(const mol2_cursor_t *cursor, uint32_t *id) {
-  uint32_t len = mol2_read_at(cursor, (uint8_t *)id, 4);
-  if (len != 4) {
-    // tested by:
-    //  tested_by_no_cobuild_append_sighash_all
-    //  tested_by_insert_witness_less_4_before_sighashall
-    return MOL2_ERR_DATA;
-  }
-  return CKB_SUCCESS;
-}
-
-int ckb_fetch_message(bool *has_message, mol2_cursor_t *message_cursor,
-                      uint8_t *data_source, size_t cache_len) {
-  int err = ERROR_GENERAL;
-  *has_message = false;
-  for (size_t index = 0;; index++) {
-    uint32_t id = 0;
-    uint64_t len = sizeof(id);
-    err = ckb_load_witness(&id, &len, 0, index, CKB_SOURCE_INPUT);
-    CHECK_LOOP(err);
-
-    if (len >= sizeof(id) && id == WitnessLayoutSighashAll) {
-      // tested by:
-      //  tested_by_sighashall_dup
-      CHECK2(!*has_message, ERROR_SIGHASHALL_DUP);
-      *has_message = true;
-      mol2_cursor_t cursor = {0};
-      err = ckb_new_witness_cursor(&cursor, data_source, cache_len, index,
-                                   CKB_SOURCE_INPUT);
-      CHECK(err);
-      mol2_union_t uni = mol2_union_unpack(&cursor);
-      /* See molecule defintion, the index is 0:
-      table SighashAll {
-        message: Message,
-        seal: Bytes,
+int ckb_fetch_sighash_message(BytesVecType witnesses, MessageType *message) {
+  int err = 0;
+  bool has_message = false;
+  uint32_t witness_len = witnesses.t->len(&witnesses);
+  for (uint32_t index = 0; index < witness_len; index++) {
+    WitnessLayoutType witness_layout = {0};
+    if (get_witness_layout(witnesses, index, &witness_layout) == 0) {
+      uint32_t id = witness_layout.t->item_id(&witness_layout);
+      if (id == WitnessLayoutSighashAll) {
+        // tested by:
+        //  tested_by_sighashall_dup
+        CHECK2(!has_message, ERROR_SIGHASHALL_DUP);
+        SighashAllType s = witness_layout.t->as_SighashAll(&witness_layout);
+        *message = s.t->message(&s);
+        has_message = true;
       }
-      */
-      *message_cursor = mol2_table_slice_by_index(&uni.cursor, 0);
-    } else {
-      // there are some possibilities:
-      // 1. an invalid witness (e.g. empty)
-      // 2. WitnessArgs
-      // 3. Other cobuild WitnessLayout(e.g. SighashAllOnly)
-      // tested by:
-      //  tested_by_append_witnessed_less_than_4
-      //  tested_by_append_witnessargs
-      //  tested_by_append_other_witnesslayout
     }
+    // there are some possibilities:
+    // 1. an invalid witness (e.g. empty)
+    // 2. WitnessArgs
+    // 3. Other cobuild WitnessLayout(e.g. SighashAllOnly)
+    // tested by:
+    //  tested_by_append_witnessed_less_than_4
+    //  tested_by_append_witnessargs
+    //  tested_by_append_other_witnesslayout
   }
-exit:
-  return err;
-}
-
-int ckb_fetch_seal(mol2_cursor_t *seal_cursor) {
-  int err = ERROR_GENERAL;
-  mol2_cursor_t cursor;
-  err = ckb_new_witness_cursor(&cursor, g_cobuild_seal_data_source,
-                               MAX_CACHE_SIZE, 0, CKB_SOURCE_GROUP_INPUT);
-  CHECK(err);
-  uint32_t id = 0;
-  err = try_union_unpack_id(&cursor, &id);
-  // when error occurs here, it might be a WitnessArgs layout. It shouldn't be
-  // cobuild and returns early.
-  CHECK(err);
-  if (id == WitnessLayoutSighashAll) {
-    mol2_union_t uni = mol2_union_unpack(&cursor);
-    /* See molecule defintion, the index is 1:
-    table SighashAll {
-      message: Message,
-      seal: Bytes,
-    }
-    */
-    *seal_cursor = mol2_table_slice_by_index(&uni.cursor, 1);
-  } else if (id == WitnessLayoutSighashAllOnly) {
-    /* See molecule defintion, the index is 0:
-    table SighashAllOnly {
-      seal: Bytes,
-    }
-    tested by test_sighash_all_only
-  */
-    mol2_union_t uni = mol2_union_unpack(&cursor);
-    *seal_cursor = mol2_table_slice_by_index(&uni.cursor, 0);
-  } else {
-    // the union id should be SighashAll or SighashAllOnly. otherwise, it fails
-    // and mark it as non cobuild.
-    // tested by test_wrong_union_id
-    printf("error in fetch_seal, id = %u", id);
-    CHECK2(false, ERROR_SIGHASHALL_NOSEAL);
-  }
-  *seal_cursor = convert_to_rawbytes(seal_cursor);
 exit:
   return err;
 }
 
 // step 2
-int ckb_fetch_otx_start(bool *has_otx, size_t *i, OtxStart *otx_start) {
-  uint8_t data_source[DEFAULT_DATA_SOURCE_LENGTH];
+static inline int ckb_fetch_otx_start(BytesVecType witnesses, bool *has_otx,
+                                      size_t *i, OtxStart *otx_start) {
   int err = ERROR_GENERAL;
   *has_otx = false;
-  for (size_t index = 0;; index++) {
-    uint32_t id = 0;
-    uint64_t len = sizeof(id);
-    err = ckb_load_witness(&id, &len, 0, index, CKB_SOURCE_INPUT);
-    CHECK_LOOP(err);
+  uint32_t witness_len = witnesses.t->len(&witnesses);
+  for (uint32_t index = 0; index < witness_len; index++) {
+    WitnessLayoutType witness_layout = {0};
+    err = get_witness_layout(witnesses, index, &witness_layout);
+    if (err == 0) {
+      uint32_t id = witness_layout.t->item_id(&witness_layout);
+      if (id == WitnessLayoutOtxStart) {
+        // step 4
+        // test_cobuild_otx_double_otx_start
+        CHECK2(!*has_otx, ERROR_OTX_START_DUP);
+        *has_otx = true;
+        *i = index;
 
-    if (len >= sizeof(id) && id == WitnessLayoutOtxStart) {
-      // step 4
-      // test_cobuild_otx_double_otx_start
-      CHECK2(!*has_otx, ERROR_OTX_START_DUP);
-      *has_otx = true;
-      *i = index;
-      mol2_cursor_t cursor = {0};
-      err = ckb_new_witness_cursor(&cursor, data_source, MAX_CACHE_SIZE, index,
-                                   CKB_SOURCE_INPUT);
-      CHECK(err);
-      mol2_union_t uni = mol2_union_unpack(&cursor);
-      OtxStartType start = make_OtxStart(&uni.cursor);
-      otx_start->start_input_cell = start.t->start_input_cell(&start);
-      otx_start->start_output_cell = start.t->start_output_cell(&start);
-      otx_start->start_cell_deps = start.t->start_cell_deps(&start);
-      otx_start->start_header_deps = start.t->start_header_deps(&start);
+        OtxStartType start = witness_layout.t->as_OtxStart(&witness_layout);
+        otx_start->start_input_cell = start.t->start_input_cell(&start);
+        otx_start->start_output_cell = start.t->start_output_cell(&start);
+        otx_start->start_cell_deps = start.t->start_cell_deps(&start);
+        otx_start->start_header_deps = start.t->start_header_deps(&start);
+      }
     }
+  }
+  if (has_otx) {
+    err = 0;
   }
 exit:
   return err;
 }
-// hash cell, including CellOutput and cell data
-static int hash_cell(blake2b_state *ctx, size_t index, size_t source,
-                     size_t *count) {
+// hash input cell, including CellOutput and cell data
+static int hash_input_cell(blake2b_state *ctx, size_t index, size_t *count) {
   // this data source is on stack. When this function returns, all cursors bound
   // to this buffer become invalid.
   uint8_t data_source[DEFAULT_DATA_SOURCE_LENGTH];
   int err = 0;
   // CellOutput
-  uint64_t cell_len = 0;
-  err = ckb_load_cell(0, &cell_len, 0, index, source);
+  uint64_t cell_len = MAX_CACHE_SIZE;
+  err = ckb_load_cell(MOL2_CACHE_PTR(data_source), &cell_len, 0, index,
+                      CKB_SOURCE_INPUT);
   CHECK(err);
   mol2_cursor_t cell_cursor = {0};
-  ckb_new_cursor(&cell_cursor, cell_len, read_from_cell, data_source,
-                 MAX_CACHE_SIZE, index, source);
+  uint32_t cache_size = (uint32_t)cell_len;
+  if (cache_size > MAX_CACHE_SIZE) {
+    cache_size = MAX_CACHE_SIZE;
+  }
+  ckb_new_cursor_with_data(&cell_cursor, cell_len, read_from_cell, data_source,
+                           MAX_CACHE_SIZE, index, CKB_SOURCE_INPUT, cache_size);
   ckb_hash_cursor(ctx, cell_cursor);
   (*count) += cell_len;
 
   // Cell data
-  uint64_t cell_data_len = 0;
-  err = ckb_load_cell_data(0, &cell_data_len, 0, index, source);
+  uint64_t cell_data_len = MAX_CACHE_SIZE;
+  err = ckb_load_cell_data(MOL2_CACHE_PTR(data_source), &cell_data_len, 0,
+                           index, CKB_SOURCE_INPUT);
   CHECK(err);
-  mol2_cursor_t cell_data_cursor;
-  ckb_new_cursor(&cell_data_cursor, cell_data_len, read_from_cell_data,
-                 data_source, MAX_CACHE_SIZE, index, source);
+  mol2_cursor_t cell_data_cursor = {0};
+  cache_size = (uint32_t)cell_data_len;
+  if (cache_size > MAX_CACHE_SIZE) {
+    cache_size = MAX_CACHE_SIZE;
+  }
+  ckb_new_cursor_with_data(&cell_data_cursor, cell_data_len,
+                           read_from_cell_data, data_source, MAX_CACHE_SIZE,
+                           index, CKB_SOURCE_INPUT, cache_size);
   // only hash as uint32_t. 4 bytes is enough
   BLAKE2B_UPDATE(ctx, &cell_data_len, 4);
   (*count) += 4;
@@ -501,39 +356,10 @@ exit:
   return err;
 }
 
-// there is no syscall to fetch cell dep directly. Get it from scratch based on
-// transaction data structure.
-static int hash_cell_deps(blake2b_state *ctx, size_t *count, size_t start,
-                          size_t size) {
-  int err = 0;
-  uint8_t data_source[DEFAULT_DATA_SOURCE_LENGTH];
-
-  uint64_t tx_len = 0;
-  err = ckb_load_transaction(0, &tx_len, 0);
-  CHECK(err);
-
-  mol2_cursor_t cur = {0};
-  ckb_new_cursor(&cur, tx_len, read_from_tx, data_source, MAX_CACHE_SIZE, 0, 0);
-  TransactionType tx = make_Transaction(&cur);
-  RawTransactionType raw = tx.t->raw(&tx);
-  CellDepVecType cell_deps = raw.t->cell_deps(&raw);
-  for (size_t index = start; index < (start + size); index++) {
-    bool existing = false;
-    CellDepType cell_dep = cell_deps.t->get(&cell_deps, index, &existing);
-    CHECK2(existing, ERROR_GENERAL);
-    ckb_hash_cursor(ctx, cell_dep.cur);
-    (*count) += cell_dep.cur.size;
-  }
-exit:
-  return err;
-}
-
-int ckb_generate_smh(bool has_message, mol2_cursor_t message_cursor,
+int ckb_generate_smh(const Env *env, mol2_cursor_t message_cursor,
                      uint8_t *smh) {
+  bool has_message = message_cursor.size > 0;
   int err = 0;
-  // this data source is on stack. When this function returns, all cursors bound
-  // to this buffer become invalid.
-  uint8_t data_source[DEFAULT_DATA_SOURCE_LENGTH];
 
   blake2b_state ctx;
   size_t count = 0;
@@ -550,29 +376,28 @@ int ckb_generate_smh(bool has_message, mol2_cursor_t message_cursor,
   }
 
   // hash tx hash
-  uint8_t tx_hash[BLAKE2B_BLOCK_SIZE];
-  uint64_t tx_hash_len = sizeof(tx_hash);
-  err = ckb_load_tx_hash(tx_hash, &tx_hash_len, 0);
-  CHECK(err);
-  BLAKE2B_UPDATE(&ctx, tx_hash, sizeof(tx_hash));
-  count += 32;
+  BLAKE2B_UPDATE(&ctx, env->tx_hash, sizeof(env->tx_hash));
+  count += sizeof(env->tx_hash);
+
+  TransactionType tx = env->tx;
+  RawTransactionType raw = tx.t->raw(&tx);
+  CellInputVecType inputs = raw.t->inputs(&raw);
+  uint32_t input_len = inputs.t->len(&inputs);
+  BytesVecType witnesses = tx.t->witnesses(&tx);
+  uint32_t witness_len = witnesses.t->len(&witnesses);
 
   // hash input cell and data
-  size_t index = 0;
-  for (;; index++) {
-    err = hash_cell(&ctx, index, CKB_SOURCE_INPUT, &count);
-    CHECK_LOOP(err);
+  for (uint32_t index = 0; index < input_len; index++) {
+    err = hash_input_cell(&ctx, index, &count);
+    CHECK(err);
   }
-  size_t input_len = index;
   // hash remaining witnesses
-  for (size_t index = input_len;; index++) {
-    uint64_t witness_len = 0;
-    err = ckb_load_witness(0, &witness_len, 0, index, CKB_SOURCE_INPUT);
-    CHECK_LOOP(err);
-    mol2_cursor_t witness_cursor;
-    ckb_new_cursor(&witness_cursor, witness_len, read_from_witness, data_source,
-                   MAX_CACHE_SIZE, index, CKB_SOURCE_INPUT);
-    // only hash as uint32_t. 4 bytes is enough
+  for (uint32_t index = input_len; index < witness_len; index++) {
+    bool existing = false;
+    mol2_cursor_t witness_cursor =
+        witnesses.t->get(&witnesses, index, &existing);
+    CHECK2(existing, ERROR_MOL2_UNEXPECTED);
+    uint32_t witness_len = witness_cursor.size;
     BLAKE2B_UPDATE(&ctx, &witness_len, 4);
     count += 4;
     err = ckb_hash_cursor(&ctx, witness_cursor);
@@ -623,22 +448,28 @@ exit:
 // (including input/output) matches the action.script_hash. Let A be the set of
 // action.script_hash, and B be the set of all input/output script hashes; A ∈ B
 // should be satisfied.
-static int check_type_script_existing(mol2_cursor_t message) {
+static int check_type_script_existing(MessageType msg) {
   int err = 0;
   // cache all type script hashes in input/output cells
-  uint8_t type_script_hash[BLAKE2B_BLOCK_SIZE * MAX_TYPESCRIPT_COUNT] = {0};
-  uint32_t type_script_hash_count = 0;
+  static uint8_t type_script_hash[BLAKE2B_BLOCK_SIZE * MAX_TYPESCRIPT_COUNT] = {
+      0};
+  static uint32_t type_script_hash_count = 0;
+  static int type_script_hash_initialized = 0;
 
-  err = collect_type_script_hash(type_script_hash, &type_script_hash_count,
-                                 CKB_SOURCE_INPUT);
-  CHECK(err);
-  err = collect_type_script_hash(type_script_hash, &type_script_hash_count,
-                                 CKB_SOURCE_OUTPUT);
-  CHECK(err);
-  // sort for fast searching
-  qsort(type_script_hash, type_script_hash_count, BLAKE2B_BLOCK_SIZE, hash_cmp);
+  if (type_script_hash_initialized == 0) {
+    err = collect_type_script_hash(type_script_hash, &type_script_hash_count,
+                                   CKB_SOURCE_INPUT);
+    CHECK(err);
+    err = collect_type_script_hash(type_script_hash, &type_script_hash_count,
+                                   CKB_SOURCE_OUTPUT);
+    CHECK(err);
+    // sort for fast searching
+    qsort(type_script_hash, type_script_hash_count, BLAKE2B_BLOCK_SIZE,
+          hash_cmp);
 
-  MessageType msg = make_Message(&message);
+    type_script_hash_initialized = 1;
+  }
+
   ActionVecType actions = msg.t->actions(&msg);
   uint32_t len = actions.t->len(&actions);
   for (uint32_t i = 0; i < len; i++) {
@@ -670,39 +501,65 @@ static int parse_seal(const mol2_cursor_t original_seal, mol2_cursor_t *seal,
   uint32_t len = mol2_read_at(&original_seal, prefix, prefix_length);
   CHECK2(len == prefix_length, ERROR_SEAL);
   *message_calculation_flow = prefix[0];
-  *seal = original_seal;
-  mol2_add_offset(seal, prefix_length);
-  mol2_sub_size(seal, prefix_length);
-  mol2_validate(seal);
+  *seal = mol2_cursor_slice_start(&original_seal, prefix_length);
 
 exit:
   return err;
 }
 
-int ckb_cobuild_normal_entry(ScriptEntryType callback) {
+int ckb_cobuild_normal_entry(const Env *env, ScriptEntryType callback) {
+  TransactionType tx = env->tx;
+  BytesVecType witnesses = tx.t->witnesses(&tx);
+
   int err = ERROR_GENERAL;
   uint8_t smh[BLAKE2B_BLOCK_SIZE];
   mol2_cursor_t seal = {0};
 
-  bool has_message = false;
-  mol2_cursor_t message;
-  // the message cursor requires longer lifetime of data_source
-  uint8_t data_source[DEFAULT_DATA_SOURCE_LENGTH];
+  MessageType message = {0};
   // step 8.a, 8.b
-  err = ckb_fetch_message(&has_message, &message, data_source, MAX_CACHE_SIZE);
+  err = ckb_fetch_sighash_message(witnesses, &message);
   CHECK(err);
+  bool has_message = message.cur.size > 0;
   if (has_message) {
-    print_cursor("message", message);
+    print_cursor("message", message.cur);
     // step 8.c
     err = check_type_script_existing(message);
     CHECK(err);
   }
 
+  uint8_t seal_source[DEFAULT_DATA_SOURCE_LENGTH];
   mol2_cursor_t original_seal = {0};
-  // step 8.d
-  // step 8.f
-  err = ckb_fetch_seal(&original_seal);
-  CHECK(err);
+  {
+    // step 8.d
+    // step 8.f
+    mol2_cursor_t witness = {0};
+    err = ckb_new_witness_cursor(&witness, seal_source, MAX_CACHE_SIZE, 0,
+                                 CKB_SOURCE_GROUP_INPUT);
+    CHECK(err);
+    uint32_t id = 0;
+    err = try_union_unpack_id(&witness, &id);
+    CHECK(err);
+    switch (id) {
+      case WitnessLayoutSighashAll: {
+        // TODO: validate full WitnessLayout structure
+        WitnessLayoutType layout = make_WitnessLayout(&witness);
+        SighashAllType s = layout.t->as_SighashAll(&layout);
+        original_seal = s.t->seal(&s);
+      } break;
+      case WitnessLayoutSighashAllOnly: {
+        // TODO: validate full WitnessLayout structure
+        WitnessLayoutType layout = make_WitnessLayout(&witness);
+        SighashAllOnlyType o = layout.t->as_SighashAllOnly(&layout);
+        original_seal = o.t->seal(&o);
+      } break;
+      default: {
+        // the union id should be SighashAll or SighashAllOnly. otherwise, it
+        // fails and mark it as non cobuild. tested by test_wrong_union_id
+        printf("error in fetch_seal, id = %u", id);
+        CHECK2(false, ERROR_SIGHASHALL_NOSEAL);
+      } break;
+    }
+  }
   print_cursor("seal", original_seal);
 
   // step 8.e
@@ -717,7 +574,7 @@ int ckb_cobuild_normal_entry(ScriptEntryType callback) {
 
   if (message_calculation_flow == MessageCalculationFlowBlake2b) {
     // step 8.g
-    err = ckb_generate_smh(has_message, message, smh);
+    err = ckb_generate_smh(env, message.cur, smh);
     CHECK(err);
     print_raw_data("smh", smh, BLAKE2B_BLOCK_SIZE);
   } else {
@@ -725,7 +582,7 @@ int ckb_cobuild_normal_entry(ScriptEntryType callback) {
     // first byte of seal
     CHECK2(false, ERROR_FLOW);
   }
-  err = callback(smh, seal, true);
+  err = callback(env, smh, seal);
   if (err) {
     printf("callback failed: %d", err);
     // terminated immediately
@@ -735,8 +592,8 @@ exit:
   return err;
 }
 
-int ckb_generate_otx_smh(mol2_cursor_t message_cursor, uint8_t *smh,
-                         const OtxStart *start, const Otx *size) {
+int ckb_generate_otx_smh(const Env *env, mol2_cursor_t message_cursor,
+                         uint8_t *smh, const OtxStart *start, const Otx *size) {
   int err = 0;
   blake2b_state ctx;
   size_t count = 0;
@@ -758,47 +615,85 @@ int ckb_generate_otx_smh(mol2_cursor_t message_cursor, uint8_t *smh,
   BLAKE2B_UPDATE(&ctx, &size->input_cells, 4);
   count += 4;
 
+  TransactionType tx = env->tx;
+  RawTransactionType raw = tx.t->raw(&tx);
+  CellInputVecType inputs = raw.t->inputs(&raw);
+
   // hash input cell and data
+  CHECK2(start->start_input_cell + size->input_cells >= start->start_input_cell,
+         ERROR_OVERFLOW);
   for (size_t index = start->start_input_cell;
        index < (start->start_input_cell + size->input_cells); index++) {
     // CellInput
-    uint8_t input[128];
-    uint64_t input_len = sizeof(input);
-    err = ckb_load_input(input, &input_len, 0, index, CKB_SOURCE_INPUT);
+    bool existing = false;
+    CellInputType input = inputs.t->get(&inputs, index, &existing);
+    CHECK2(existing, ERROR_MOL2_UNEXPECTED);
+    err = ckb_hash_cursor(&ctx, input.cur);
     CHECK(err);
-    BLAKE2B_UPDATE(&ctx, input, input_len);
-    count += input_len;
+    count += input.cur.size;
 
-    err = hash_cell(&ctx, index, CKB_SOURCE_INPUT, &count);
+    err = hash_input_cell(&ctx, index, &count);
     CHECK(err);
   }
   // hash output cell and data
+  CHECK2(
+      start->start_output_cell + size->output_cells >= start->start_output_cell,
+      ERROR_OVERFLOW);
   BLAKE2B_UPDATE(&ctx, &size->output_cells, 4);
   count += 4;
+  CellOutputVecType outputs = raw.t->outputs(&raw);
+  BytesVecType outputs_data = raw.t->outputs_data(&raw);
   for (size_t index = start->start_output_cell;
        index < (start->start_output_cell + size->output_cells); index++) {
-    err = hash_cell(&ctx, index, CKB_SOURCE_OUTPUT, &count);
+    bool existing = false;
+    CellOutputType output = outputs.t->get(&outputs, index, &existing);
+    CHECK2(existing, ERROR_MOL2_UNEXPECTED);
+    err = ckb_hash_cursor(&ctx, output.cur);
     CHECK(err);
+    count += output.cur.size;
+
+    existing = false;
+    mol2_cursor_t output_data_cursor =
+        outputs_data.t->get(&outputs_data, index, &existing);
+    CHECK2(existing, ERROR_MOL2_UNEXPECTED);
+    uint32_t data_len = output_data_cursor.size;
+    BLAKE2B_UPDATE(&ctx, &data_len, 4);
+    count += 4;
+    err = ckb_hash_cursor(&ctx, output_data_cursor);
+    CHECK(err);
+    count += output_data_cursor.size;
   }
 
   // hash cell deps
+  CHECK2(start->start_cell_deps + size->cell_deps >= start->start_cell_deps,
+         ERROR_OVERFLOW);
   BLAKE2B_UPDATE(&ctx, &size->cell_deps, 4);
   count += 4;
-  err = hash_cell_deps(&ctx, &count, start->start_cell_deps, size->cell_deps);
-  CHECK(err);
+  CellDepVecType cell_deps = raw.t->cell_deps(&raw);
+  for (size_t index = start->start_cell_deps;
+       index < (start->start_cell_deps + size->cell_deps); index++) {
+    bool existing = false;
+    CellDepType cell_dep = cell_deps.t->get(&cell_deps, index, &existing);
+    CHECK2(existing, ERROR_MOL2_UNEXPECTED);
+    err = ckb_hash_cursor(&ctx, cell_dep.cur);
+    count += cell_dep.cur.size;
+  }
 
   // hash header deps
+  CHECK2(
+      start->start_header_deps + size->header_deps >= start->start_header_deps,
+      ERROR_OVERFLOW);
   BLAKE2B_UPDATE(&ctx, &size->header_deps, 4);
   count += 4;
+  Byte32VecType header_deps = raw.t->header_deps(&raw);
   for (size_t index = start->start_header_deps;
        index < (start->start_header_deps + size->header_deps); index++) {
-    uint8_t header_dep[32];
-    uint64_t header_dep_len = sizeof(header_dep);
-    err = ckb_load_header(header_dep, &header_dep_len, 0, index,
-                          CKB_SOURCE_HEADER_DEP);
-    CHECK(err);
-    BLAKE2B_UPDATE(&ctx, header_dep, header_dep_len);
-    count += header_dep_len;
+    bool existing = false;
+    mol2_cursor_t header_dep_cursor =
+        header_deps.t->get(&header_deps, index, &existing);
+    CHECK2(existing, ERROR_MOL2_UNEXPECTED);
+    err = ckb_hash_cursor(&ctx, header_dep_cursor);
+    count += header_dep_cursor.size;
   }
   printf("ckb_generate_otx_smh totally hashed %d bytes", count);
   blake2b_final(&ctx, smh, BLAKE2B_BLOCK_SIZE);
@@ -806,41 +701,22 @@ exit:
   return err;
 }
 
-static int get_witness_layout(size_t index,
-                              WitnessLayoutId *witness_layout_id) {
-  uint32_t id = 0;
-  uint64_t id_len = sizeof(id);
-  int err = ckb_load_witness(&id, &id_len, 0, index, CKB_SOURCE_INPUT);
-  if (err) return err;
-  if (id_len < sizeof(id)) {
-    return ERROR_GENERAL;
-  }
-  if (id == WitnessLayoutSighashAll || id == WitnessLayoutSighashAllOnly ||
-      id == WitnessLayoutOtx || id == WitnessLayoutOtxStart) {
-    *witness_layout_id = id;
-  } else {
-    return ERROR_GENERAL;
-  }
-  return 0;
-}
-
-int ckb_cobuild_entry(ScriptEntryType callback, bool *cobuild_enabled) {
+int ckb_cobuild_entry(const Env *env, ScriptEntryType callback,
+                      bool *cobuild_enabled) {
   int err = 0;
   size_t execution_count = 0;
   uint8_t smh[BLAKE2B_BLOCK_SIZE] = {0};
   mol2_cursor_t original_seal = {0};
   mol2_cursor_t seal = {0};
 
+  TransactionType tx = env->tx;
+  BytesVecType witnesses = tx.t->witnesses(&tx);
+  uint32_t witness_len = witnesses.t->len(&witnesses);
+
   // Legacy Flow Handling
   *cobuild_enabled = false;
-  for (size_t index = 0;; index++) {
-    WitnessLayoutId id;
-    err = get_witness_layout(index, &id);
-    if (err == CKB_INDEX_OUT_OF_BOUND) {
-      err = 0;
-      break;
-    }
-    if (err == 0) {
+  for (uint32_t i = 0; i < witness_len; i++) {
+    if (get_witness_layout(witnesses, i, NULL) == 0) {
       *cobuild_enabled = true;
       break;
     }
@@ -849,12 +725,6 @@ int ckb_cobuild_entry(ScriptEntryType callback, bool *cobuild_enabled) {
     goto exit;
   }
 
-  uint8_t current_script_hash[BLAKE2B_BLOCK_SIZE] = {0};
-  uint64_t script_hash_len = BLAKE2B_BLOCK_SIZE;
-  err = ckb_load_script_hash(current_script_hash, &script_hash_len, 0);
-  CHECK(err);
-  CHECK2(script_hash_len == BLAKE2B_BLOCK_SIZE, ERROR_GENERAL);
-
   // step 1
   uint32_t is = 0, ie = 0, os = 0, oe = 0, cs = 0, ce = 0, hs = 0, he = 0;
   size_t i = 0;
@@ -862,12 +732,12 @@ int ckb_cobuild_entry(ScriptEntryType callback, bool *cobuild_enabled) {
   OtxStart otx_start = {0};
   // step 2
   // step 4
-  err = ckb_fetch_otx_start(&has_otx, &i, &otx_start);
+  err = ckb_fetch_otx_start(witnesses, &has_otx, &i, &otx_start);
   CHECK(err);
   if (!has_otx) {
     // step 3
     printf("No otx detected");
-    return ckb_cobuild_normal_entry(callback);
+    return ckb_cobuild_normal_entry(env, callback);
   }
   // step 5
   is = otx_start.start_input_cell;
@@ -879,23 +749,22 @@ int ckb_cobuild_entry(ScriptEntryType callback, bool *cobuild_enabled) {
   hs = otx_start.start_header_deps;
   he = hs;
   printf("ie = %d, oe = %d, ce = %d, he = %d", ie, oe, ce, he);
-  size_t index = i + 1;
+  uint32_t index = i + 1;
   printf("Otx starts at index %d(inclusive)", index);
-  for (;; index++) {
-    mol2_cursor_t cursor;
-    err = ckb_new_witness_cursor(&cursor, g_cobuild_seal_data_source,
-                                 MAX_CACHE_SIZE, index, CKB_SOURCE_INPUT);
-    // step 6, not WitnessLayoutOtx
-    CHECK_LOOP(err);
-    uint32_t id = 0;
-    err = try_union_unpack_id(&cursor, &id);
-    if (err || id != WitnessLayoutOtx) {
+  for (; index < witness_len; index++) {
+    WitnessLayoutType witness_layout = {0};
+    err = get_witness_layout(witnesses, index, &witness_layout);
+    if (err != 0) {
+      // step 6, not WitnessLayoutOtx
+      break;
+    }
+    uint32_t id = witness_layout.t->item_id(&witness_layout);
+    if (id != WitnessLayoutOtx) {
       // step 6
       // test_cobuild_otx_noexistent_otx_id && err == 0
       break;
     }
-    mol2_union_t uni = mol2_union_unpack(&cursor);
-    OtxType otx = make_Otx(&uni.cursor);
+    OtxType otx = witness_layout.t->as_Otx(&witness_layout);
     MessageType message = otx.t->message(&otx);
     Otx size = {
         .input_cells = otx.t->input_cells(&otx),
@@ -910,7 +779,7 @@ int ckb_cobuild_entry(ScriptEntryType callback, bool *cobuild_enabled) {
       CHECK2(false, ERROR_WRONG_OTX);
     }
     // step 6.c
-    err = check_type_script_existing(message.cur);
+    err = check_type_script_existing(message);
     CHECK(err);
     // step 6.d
     bool found = false;
@@ -921,7 +790,7 @@ int ckb_cobuild_entry(ScriptEntryType callback, bool *cobuild_enabled) {
       err = ckb_load_cell_by_field(hash, &len, 0, index2, CKB_SOURCE_INPUT,
                                    CKB_CELL_FIELD_LOCK_HASH);
       CHECK(err);
-      if (memcmp(hash, current_script_hash, sizeof(hash)) == 0) {
+      if (memcmp(hash, env->current_script_hash, sizeof(hash)) == 0) {
         found = true;
         break;
       }
@@ -940,7 +809,7 @@ int ckb_cobuild_entry(ScriptEntryType callback, bool *cobuild_enabled) {
         .start_cell_deps = ce,
         .start_header_deps = he,
     };
-    err = ckb_generate_otx_smh(message.cur, smh, &start, &size);
+    err = ckb_generate_otx_smh(env, message.cur, smh, &start, &size);
     CHECK(err);
     print_raw_data("smh", smh, BLAKE2B_BLOCK_SIZE);
     // step 6.f
@@ -955,7 +824,7 @@ int ckb_cobuild_entry(ScriptEntryType callback, bool *cobuild_enabled) {
       mol2_cursor_t script_hash = loop_seal.t->script_hash(&loop_seal);
       size_t len = mol2_read_at(&script_hash, hash, sizeof(hash));
       CHECK2(len == sizeof(hash), ERROR_GENERAL);
-      if (memcmp(hash, current_script_hash, sizeof(hash)) == 0) {
+      if (memcmp(hash, env->current_script_hash, sizeof(hash)) == 0) {
         // step 6.g
         original_seal = loop_seal.t->seal(&loop_seal);
         print_cursor("seal", original_seal);
@@ -972,7 +841,7 @@ int ckb_cobuild_entry(ScriptEntryType callback, bool *cobuild_enabled) {
     CHECK(err);
     if (message_calculation_flow == MessageCalculationFlowBlake2b) {
       execution_count++;
-      err = callback(smh, seal, true);
+      err = callback(env, smh, seal);
       if (err) {
         printf("callback failed: %d", err);
         // terminated immediately
@@ -992,17 +861,14 @@ int ckb_cobuild_entry(ScriptEntryType callback, bool *cobuild_enabled) {
 
   // step 7
   size_t j = index;
-  for (size_t index = 0;; index++) {
+  for (uint32_t index = 0; index < witness_len; index++) {
     // [0, i) [j, +infinity)
     if (index < i || index >= j) {
-      WitnessLayoutId id;
-      err = get_witness_layout(index, &id);
-      if (err == CKB_INDEX_OUT_OF_BOUND) {
-        err = 0;
-        break;
-      }
+      WitnessLayoutType witness_layout = {0};
+      err = get_witness_layout(witnesses, index, &witness_layout);
       if (err == 0) {
         // test_cobuild_otx_noexistent_otx_id
+        uint32_t id = witness_layout.t->item_id(&witness_layout);
         CHECK2(id != WitnessLayoutOtx, ERROR_WRONG_OTX);
       }
     }
@@ -1019,7 +885,7 @@ int ckb_cobuild_entry(ScriptEntryType callback, bool *cobuild_enabled) {
       err = ckb_load_cell_by_field(hash, &len, 0, index, CKB_SOURCE_INPUT,
                                    CKB_CELL_FIELD_LOCK_HASH);
       CHECK_LOOP(err);
-      if (memcmp(hash, current_script_hash, sizeof(hash)) == 0) {
+      if (memcmp(hash, env->current_script_hash, sizeof(hash)) == 0) {
         printf(
             "Same lock script found beyond otx, at index %d. "
             "ckb_cobuild_normal_entry called.",
@@ -1033,7 +899,7 @@ int ckb_cobuild_entry(ScriptEntryType callback, bool *cobuild_enabled) {
     // TODO
     printf("extra callback is invoked");
     execution_count++;
-    err = ckb_cobuild_normal_entry(callback);
+    err = ckb_cobuild_normal_entry(env, callback);
     CHECK(err);
   }
   CHECK2(execution_count > 0, ERROR_NO_CALLBACK);

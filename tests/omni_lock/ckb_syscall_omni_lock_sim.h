@@ -22,6 +22,7 @@
 mol_seg_t build_bytes(const uint8_t* data, uint32_t len);
 mol_seg_t build_script(const uint8_t* code_hash, uint8_t hash_type,
                        const uint8_t* args, uint32_t args_len);
+int ckb_load_transaction(void* addr, uint64_t* len, size_t offset);
 int ckb_load_tx_hash(void* addr, uint64_t* len, size_t offset);
 int ckb_load_witness(void* addr, uint64_t* len, size_t offset, size_t index,
                      size_t source);
@@ -107,6 +108,7 @@ typedef struct RcLockStates {
   uint32_t witness_count;
 
   slice_t script;
+  slice_t transaction;
 
   slice_t cell_data[64];
   uint32_t cell_data_count;
@@ -364,6 +366,22 @@ void convert_setting_to_states(void) {
   // make witness again, with correct signature
   convert_witness();
 
+  // Build a dummy transaction that is just enough for omnilock
+  {
+    mol_builder_t witness_builder;
+    MolBuilder_BytesVec_init(&witness_builder);
+    MolBuilder_BytesVec_push(&witness_builder, g_states.witness[0].ptr, g_states.witness[0].size);
+    mol_seg_res_t witness_res = MolBuilder_BytesVec_build(witness_builder);
+
+    mol_builder_t tx_builder;
+    MolBuilder_Transaction_init(&tx_builder);
+    MolBuilder_Transaction_set_witnesses(&tx_builder, witness_res.seg.ptr, witness_res.seg.size);
+    mol_seg_res_t tx_res = MolBuilder_Transaction_build(tx_builder);
+
+    g_states.transaction.ptr = tx_res.seg.ptr;
+    g_states.transaction.size = tx_res.seg.size;
+  }
+
   // Script
   uint8_t script_args[1 + 20 + 1 + 32 + 2 + 8] = {0};
   uint32_t script_args_len = 22;
@@ -548,6 +566,28 @@ int ckb_load_witness(void* addr, uint64_t* len, size_t offset, size_t index,
   }
 
   slice_t seg = g_states.witness[0];
+
+  if (addr == NULL) {
+    *len = seg.size;
+    return 0;
+  }
+  if (seg.size <= offset) {
+    *len = 0;
+    return 0;
+  }
+  uint32_t remaining = seg.size - offset;
+  if (remaining > *len) {
+    memcpy(addr, seg.ptr + offset, *len);
+  } else {
+    memcpy(addr, seg.ptr + offset, remaining);
+  }
+  *len = remaining;
+
+  return 0;
+}
+
+int ckb_load_transaction(void* addr, uint64_t* len, size_t offset) {
+  slice_t seg = g_states.transaction;
 
   if (addr == NULL) {
     *len = seg.size;

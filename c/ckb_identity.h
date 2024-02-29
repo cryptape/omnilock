@@ -1,8 +1,15 @@
 #ifndef CKB_C_STDLIB_CKB_IDENTITY_H_
 #define CKB_C_STDLIB_CKB_IDENTITY_H_
+
+#define BLAKE2_IMPL_H
+#define BLAKE2_REF_C
 #include <blake2b.h>
+#undef BLAKE2_REF_C
+#undef BLAKE2_IMPL_H
+
 #include <ckb_exec.h>
 
+#include "blockchain.h"
 #include "ckb_consts.h"
 #include "ckb_keccak256.h"
 #include "ripemd160.h"
@@ -383,6 +390,7 @@ int generate_sighash_all(uint8_t *msg, size_t msg_len) {
     return ERROR_IDENTITY_ARGUMENTS_LEN;
   }
 
+  // TODO: migrate this to molecule-c2 so we don't need MAX_WITNESS_SIZE
   /* Load witness of first input */
   ret = ckb_load_witness(temp, &read_len, 0, 0, CKB_SOURCE_GROUP_INPUT);
   if (ret != CKB_SUCCESS) {

@@ -39,7 +39,7 @@ build/secp256k1_data_info.h: build/dump_secp256k1_data
 
 build/dump_secp256k1_data: c/dump_secp256k1_data.c $(SECP256K1_SRC)
 	mkdir -p build
-	gcc -I deps/secp256k1/src -I deps/secp256k1 -o $@ $<
+	gcc -I deps/secp256k1/src -I deps/secp256k1 -I deps/ckb-c-stdlib -o $@ $<
 
 
 $(SECP256K1_SRC):
@@ -76,10 +76,10 @@ omni_lock_mol:
 	${MOLC} --language - --schema-file c/omni_lock.mol --format json > build/omni_lock_mol2.json
 	moleculec-c2 --input build/omni_lock_mol2.json | clang-format -style=Google > c/omni_lock_mol2.h
 
-build/cobuild.o: c/cobuild.c c/cobuild.h
+build/cobuild.o: c/cobuild.c c/cobuild.h c/mol2_utils.h
 	$(CC) -c $(OMNI_LOCK_CFLAGS) -o $@ $<
 
-build/omni_lock.o: c/omni_lock.c c/omni_lock_supply.h c/omni_lock_acp.h build/secp256k1_data_info.h $(SECP256K1_SRC) c/ckb_identity.h
+build/omni_lock.o: c/omni_lock.c c/omni_lock_supply.h c/omni_lock_acp.h build/secp256k1_data_info.h $(SECP256K1_SRC) c/ckb_identity.h c/mol2_utils.h
 	$(CC) -c $(OMNI_LOCK_CFLAGS) -o $@ $<
 
 build/omni_lock: build/omni_lock.o build/cobuild.o
@@ -92,6 +92,8 @@ cobuild_mol:
 	${MOLC} --language rust --schema-file c/top_level.mol | rustfmt > tests/omni_lock_rust/src/schemas/top_level.rs
 	${MOLC} --language - --schema-file c/basic.mol --format json > build/cobuild_basic_mol2.json
 	moleculec-c2 --input build/cobuild_basic_mol2.json | clang-format -style=Google > c/cobuild_basic_mol2.h
+	${MOLC} --language - --schema-file c/top_level.mol --format json > build/cobuild_top_level_mol2.json
+	moleculec-c2 --input build/cobuild_top_level_mol2.json | clang-format -style=Google > c/cobuild_top_level_mol2.h
 
 clean: clean2
 	rm -rf build/secp256k1_data_info.h build/dump_secp256k1_data
