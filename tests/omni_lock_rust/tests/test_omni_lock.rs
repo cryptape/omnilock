@@ -778,7 +778,7 @@ fn test_cobuild_wrong_union_id() {
     let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
-    assert_script_error(verify_result.unwrap_err(), 114);
+    assert_script_error(verify_result.unwrap_err(), 8); // MOL2_ERR_OVERFLOW
 }
 
 #[test]
@@ -868,7 +868,7 @@ fn test_cobuild_sighashall_dup() {
     let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
-    assert_script_error(verify_result.unwrap_err(), 113);
+    assert_script_error(verify_result.unwrap_err(), 7); // MOL2_ERR_DATA
 }
 
 #[test]
@@ -937,7 +937,7 @@ fn test_cobuild_big_message() {
         let action_builder =
             action_builder.script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
         let action_builder = action_builder.script_hash(always_success_script_hash.clone());
-        let action_builder = action_builder.data(ckb_types::packed::Bytes::new_unchecked(Bytes::from(vec![0x42; 128])));
+        let action_builder = action_builder.data(vec![0x42; 128].pack());
         let action = action_builder.build();
         action_vec.push(action);
     }
@@ -1126,7 +1126,7 @@ fn test_cobuild_check_action_script_hash_is_in_inputs() {
     let action_builder = Action::new_builder();
     let action_builder = action_builder.script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
     let action_builder = action_builder.script_hash(always_success_script_hash.clone());
-    let action_builder = action_builder.data(ckb_types::packed::Bytes::new_unchecked(Bytes::from(vec![0x42; 128])));
+    let action_builder = action_builder.data(vec![0x42; 128].pack());
     let action = action_builder.build();
     action_vec.push(action);
     let action_vec = ActionVec::new_builder().extend(action_vec).build();
@@ -1170,14 +1170,14 @@ fn test_cobuild_check_action_script_hash_is_in_2_outputs() {
     let action_builder_0 =
         action_builder_0.script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
     let action_builder_0 = action_builder_0.script_hash(always_success_script_hash_0.clone());
-    let action_builder_0 = action_builder_0.data(ckb_types::packed::Bytes::new_unchecked(Bytes::from(vec![0x42; 128])));
+    let action_builder_0 = action_builder_0.data(vec![0x42; 128].pack());
     let action_0 = action_builder_0.build();
     action_vec.push(action_0.clone());
     let action_builder_1 = Action::new_builder();
     let action_builder_1 =
         action_builder_1.script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap());
     let action_builder_1 = action_builder_1.script_hash(always_success_script_hash_1.clone());
-    let action_builder_1 = action_builder_1.data(ckb_types::packed::Bytes::new_unchecked(Bytes::from(vec![0x42; 128])));
+    let action_builder_1 = action_builder_1.data(vec![0x42; 128].pack());
     let action_1 = action_builder_1.build();
     action_vec.push(action_1);
 

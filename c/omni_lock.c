@@ -34,6 +34,7 @@ int ckb_exit(signed char);
 #include "omni_lock_mol2.h"
 #include "cobuild_basic_mol2.h"
 #include "cobuild_top_level_mol2.h"
+#include "molecule2_verify.h"
 
 #include "omni_lock_acp.h"
 #include "omni_lock_time_lock.h"
@@ -404,6 +405,9 @@ int main() {
       if (err == 0) {
         if (witness_cursor.size > 0) {
           WitnessArgsType witness_args = make_WitnessArgs(&witness_cursor);
+          CHECK2(!verify_WitnessArgs(&witness_args),
+                 ERROR_INVALID_WITNESS_FORMAT);
+
           BytesOptType lock_opt = witness_args.t->lock(&witness_args);
           if (lock_opt.t->is_some(&lock_opt)) {
             lock = lock_opt.t->unwrap(&lock_opt);

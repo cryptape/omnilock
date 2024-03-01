@@ -11,13 +11,13 @@
 #define MOL2_EXIT ckb_exit
 #endif
 int ckb_exit(signed char);
-#define MOLECULEC_C2_DECLARATION_ONLY
 
 #include "molecule2_reader.h"
 #include "blockchain-api2.h"
 #include "cobuild_basic_mol2.h"
 #include "cobuild_top_level_mol2.h"
 #include "cobuild.h"
+#include "molecule2_verify.h"
 
 #define BLAKE2_IMPL_H
 #define BLAKE2_REF_C
@@ -85,13 +85,6 @@ enum CobuildErrorCode {
   ERROR_MOL2_UNEXPECTED,
   ERROR_OVERFLOW,
 };
-
-typedef enum WitnessLayoutId {
-  WitnessLayoutSighashAll = 4278190081,
-  WitnessLayoutSighashAllOnly = 4278190082,
-  WitnessLayoutOtx = 4278190083,
-  WitnessLayoutOtxStart = 4278190084,
-} WitnessLayoutId;
 
 enum MessageCalculationFlow {
   MessageCalculationFlowBlake2b = 0,
@@ -216,21 +209,14 @@ static inline int get_witness_layout(BytesVecType witnesses, uint32_t index,
     return ERROR_MOL2_UNEXPECTED;
   }
 
-  uint32_t id = 0;
-  int err = try_union_unpack_id(&witness, &id);
-  if (err != 0) {
-    return err;
-  }
-  // TODO: validate full WitnessLayout structure
-  if (id == WitnessLayoutSighashAll || id == WitnessLayoutSighashAllOnly ||
-      id == WitnessLayoutOtx || id == WitnessLayoutOtxStart) {
-    if (witness_layout != NULL) {
-      *witness_layout = make_WitnessLayout(&witness);
-    }
-    return 0;
-  } else {
+  WitnessLayoutType witness_layout2 = make_WitnessLayout(&witness);
+  if (verify_WitnessLayout(&witness_layout2)) {
     return ERROR_GENERAL;
   }
+  if (witness_layout != NULL) {
+    *witness_layout = witness_layout2;
+  }
+  return 0;
 }
 
 // for lock script with message, the other witness in script group except first
@@ -536,20 +522,18 @@ int ckb_cobuild_normal_entry(const Env *env, ScriptEntryType callback) {
     err = ckb_new_witness_cursor(&witness, seal_source, MAX_CACHE_SIZE, 0,
                                  CKB_SOURCE_GROUP_INPUT);
     CHECK(err);
-    uint32_t id = 0;
-    err = try_union_unpack_id(&witness, &id);
-    CHECK(err);
+    WitnessLayoutType witness_layout = make_WitnessLayout(&witness);
+    CHECK2(!verify_WitnessLayout(&witness_layout), ERROR_SIGHASHALL_NOSEAL);
+
+    uint32_t id = witness_layout.t->item_id(&witness_layout);
     switch (id) {
       case WitnessLayoutSighashAll: {
-        // TODO: validate full WitnessLayout structure
-        WitnessLayoutType layout = make_WitnessLayout(&witness);
-        SighashAllType s = layout.t->as_SighashAll(&layout);
+        SighashAllType s = witness_layout.t->as_SighashAll(&witness_layout);
         original_seal = s.t->seal(&s);
       } break;
       case WitnessLayoutSighashAllOnly: {
-        // TODO: validate full WitnessLayout structure
-        WitnessLayoutType layout = make_WitnessLayout(&witness);
-        SighashAllOnlyType o = layout.t->as_SighashAllOnly(&layout);
+        SighashAllOnlyType o =
+            witness_layout.t->as_SighashAllOnly(&witness_layout);
         original_seal = o.t->seal(&o);
       } break;
       default: {
@@ -896,7 +880,6 @@ int ckb_cobuild_entry(const Env *env, ScriptEntryType callback,
     }
   }
   if (found) {
-    // TODO
     printf("extra callback is invoked");
     execution_count++;
     err = ckb_cobuild_normal_entry(env, callback);
