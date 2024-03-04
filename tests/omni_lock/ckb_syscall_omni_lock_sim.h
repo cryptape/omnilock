@@ -370,12 +370,14 @@ void convert_setting_to_states(void) {
   {
     mol_builder_t witness_builder;
     MolBuilder_BytesVec_init(&witness_builder);
-    MolBuilder_BytesVec_push(&witness_builder, g_states.witness[0].ptr, g_states.witness[0].size);
+    MolBuilder_BytesVec_push(&witness_builder, g_states.witness[0].ptr,
+                             g_states.witness[0].size);
     mol_seg_res_t witness_res = MolBuilder_BytesVec_build(witness_builder);
 
     mol_builder_t tx_builder;
     MolBuilder_Transaction_init(&tx_builder);
-    MolBuilder_Transaction_set_witnesses(&tx_builder, witness_res.seg.ptr, witness_res.seg.size);
+    MolBuilder_Transaction_set_witnesses(&tx_builder, witness_res.seg.ptr,
+                                         witness_res.seg.size);
     mol_seg_res_t tx_res = MolBuilder_Transaction_build(tx_builder);
 
     g_states.transaction.ptr = tx_res.seg.ptr;

@@ -819,7 +819,12 @@ fn generate_otx_d0(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core::Tra
             .script_hash(px.create_script(&cell_meta_always_success, &[]).calc_script_hash())
             .data(ckb_types::bytes::Bytes::from(vec![0x42; 128]).pack())
             .build();
-        let action_vec = schemas::basic::ActionVec::new_builder().push(action).build();
+        let action2 = schemas::basic::Action::new_builder()
+            .script_info_hash(ckb_types::packed::Byte32::from_slice(&[0x00; 32]).unwrap())
+            .script_hash(px.create_script(&cell_meta_omni_lock, &args).calc_script_hash())
+            .data(ckb_types::bytes::Bytes::from(vec![0x42; 128]).pack())
+            .build();
+        let action_vec = schemas::basic::ActionVec::new_builder().push(action).push(action2).build();
         let msgs = schemas::basic::Message::new_builder().actions(action_vec).build();
         msgs
     };

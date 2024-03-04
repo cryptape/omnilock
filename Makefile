@@ -56,7 +56,7 @@ ALL_C_SOURCE := $(wildcard c/omni_lock.c c/omni_lock_acp.h c/omni_lock_time_lock
 	c/blake2b_decl_only.h c/cobuild.h c/cobuild.c c/molecule2_verify.h)
 
 fmt:
-	docker run --rm -v `pwd`:/code ${CLANG_FORMAT_DOCKER} bash -c "cd code && clang-format -i -style=Google $(ALL_C_SOURCE)"
+	docker run --rm -v `pwd`:/code ${CLANG_FORMAT_DOCKER} bash -c "cd code && clang-format -i -style='{BasedOnStyle: google, SortIncludes: false}' $(ALL_C_SOURCE)"
 	git diff --exit-code $(ALL_C_SOURCE)
 
 mol:

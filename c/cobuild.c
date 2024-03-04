@@ -37,7 +37,7 @@ int ckb_exit(signed char);
 #endif
 
 #define BLAKE2B_BLOCK_SIZE 32
-#define MAX_TYPESCRIPT_COUNT 512
+#define MAX_SCRIPT_COUNT 512
 
 #define CHECK2(cond, code)                                               \
   do {                                                                   \
@@ -401,16 +401,15 @@ static int hash_cmp(const void *h1, const void *h2) {
   return memcmp(h1, h2, BLAKE2B_BLOCK_SIZE);
 }
 
-static int collect_type_script_hash(uint8_t *type_script_hash,
-                                    uint32_t *type_script_hash_count,
-                                    size_t source) {
+static int collect_script_hash(uint8_t *script_hash,
+                               uint32_t *script_hash_count, size_t source,
+                               size_t field) {
   int err = 0;
   size_t i = 0;
   while (1) {
     uint8_t hash[BLAKE2B_BLOCK_SIZE] = {0};
     uint64_t len = BLAKE2B_BLOCK_SIZE;
-    err = ckb_load_cell_by_field(hash, &len, 0, i, source,
-                                 CKB_CELL_FIELD_TYPE_HASH);
+    err = ckb_load_cell_by_field(hash, &len, 0, i, source, field);
     if (err == CKB_INDEX_OUT_OF_BOUND) {
       err = 0;
       break;
@@ -420,10 +419,10 @@ static int collect_type_script_hash(uint8_t *type_script_hash,
       continue;
     }
     CHECK(err);
-    CHECK2(*type_script_hash_count < MAX_TYPESCRIPT_COUNT, ERROR_GENERAL);
-    memcpy(&type_script_hash[(*type_script_hash_count) * BLAKE2B_BLOCK_SIZE],
-           hash, BLAKE2B_BLOCK_SIZE);
-    (*type_script_hash_count)++;
+    CHECK2(*script_hash_count < MAX_SCRIPT_COUNT, ERROR_GENERAL);
+    memcpy(&script_hash[(*script_hash_count) * BLAKE2B_BLOCK_SIZE], hash,
+           BLAKE2B_BLOCK_SIZE);
+    (*script_hash_count)++;
     i += 1;
   }
 exit:
@@ -437,23 +436,25 @@ exit:
 static int check_type_script_existing(MessageType msg) {
   int err = 0;
   // cache all type script hashes in input/output cells
-  static uint8_t type_script_hash[BLAKE2B_BLOCK_SIZE * MAX_TYPESCRIPT_COUNT] = {
-      0};
-  static uint32_t type_script_hash_count = 0;
-  static int type_script_hash_initialized = 0;
+  static uint8_t script_hash[BLAKE2B_BLOCK_SIZE * MAX_SCRIPT_COUNT] = {0};
+  static uint32_t script_hash_count = 0;
+  static bool script_hash_initialized = false;
 
-  if (type_script_hash_initialized == 0) {
-    err = collect_type_script_hash(type_script_hash, &type_script_hash_count,
-                                   CKB_SOURCE_INPUT);
+  if (!script_hash_initialized) {
+    err = collect_script_hash(script_hash, &script_hash_count, CKB_SOURCE_INPUT,
+                              CKB_CELL_FIELD_TYPE_HASH);
     CHECK(err);
-    err = collect_type_script_hash(type_script_hash, &type_script_hash_count,
-                                   CKB_SOURCE_OUTPUT);
+    err = collect_script_hash(script_hash, &script_hash_count,
+                              CKB_SOURCE_OUTPUT, CKB_CELL_FIELD_TYPE_HASH);
     CHECK(err);
+    err = collect_script_hash(script_hash, &script_hash_count, CKB_SOURCE_INPUT,
+                              CKB_CELL_FIELD_LOCK_HASH);
+    CHECK(err);
+
     // sort for fast searching
-    qsort(type_script_hash, type_script_hash_count, BLAKE2B_BLOCK_SIZE,
-          hash_cmp);
+    qsort(script_hash, script_hash_count, BLAKE2B_BLOCK_SIZE, hash_cmp);
 
-    type_script_hash_initialized = 1;
+    script_hash_initialized = true;
   }
 
   ActionVecType actions = msg.t->actions(&msg);
@@ -466,7 +467,7 @@ static int check_type_script_existing(MessageType msg) {
     uint8_t hash_buff[BLAKE2B_BLOCK_SIZE] = {0};
     uint32_t len = mol2_read_at(&hash, hash_buff, BLAKE2B_BLOCK_SIZE);
     CHECK2(len == BLAKE2B_BLOCK_SIZE, ERROR_MESSAGE);
-    void *found = bsearch(hash_buff, type_script_hash, type_script_hash_count,
+    void *found = bsearch(hash_buff, script_hash, script_hash_count,
                           BLAKE2B_BLOCK_SIZE, hash_cmp);
     // test_cobuild_otx_noexistent_type_script_hash
     CHECK2(found != NULL, ERROR_TYPESCRIPT_MISSING);
