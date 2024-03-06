@@ -6,7 +6,7 @@
                     "dep_type": "code",
                     "out_point": {
                         "index": "0x0",
-                        "tx_hash": "0x146b17fff1c01825cd3197f4bcf862c171510e1d9505f51e902301a0337619e7"
+                        "tx_hash": "0xda6eff4ae31af68e7b6cef74954e2bbb3cd492b8b775c796c0e710bb606410c9"
                     }
                 },
                 "data": "0x{{ data ../build/omni_lock }}",
@@ -26,7 +26,7 @@
                     "dep_type": "code",
                     "out_point": {
                         "index": "0x0",
-                        "tx_hash": "0x088d6fea298bc2f464f141a6f129dd91e61496b318ad364080ceed140be5dddf"
+                        "tx_hash": "0x19b35bd168e6f34d993950b3258331fcd7b038e3db89ce81e14f9ca48c9ff170"
                     }
                 },
                 "data": "0x{{ data ../build/always_success }}",
@@ -75,14 +75,14 @@
                 "input": {
                     "previous_output": {
                         "index": "0x0",
-                        "tx_hash": "0xaa6f2a459a8c962baab66ebf67cc35d8fdecee22b5be130d5fb62ada8b3fdf54"
+                        "tx_hash": "0x0a07b06fc33bee94e6537fc9373007bc1280cc7e3904169f4d6237933f176dae"
                     },
                     "since": "0x0"
                 },
                 "output": {
                     "capacity": "0x2a",
                     "lock": {
-                        "args": "0x0470781b76897c0edd4aa5057bea9a73ea185a3b2000",
+                        "args": "0x0470a77f210b815b48af715e424639e14dae70939700",
                         "code_hash": "0xce6b8f2ba48b3ed6d84a851daad2c0bd28a084c6c31a6943a3f39cbb4d48df10",
                         "hash_type": "data1"
                     },
@@ -97,14 +97,14 @@
                 "dep_type": "code",
                 "out_point": {
                     "index": "0x0",
-                    "tx_hash": "0x146b17fff1c01825cd3197f4bcf862c171510e1d9505f51e902301a0337619e7"
+                    "tx_hash": "0xda6eff4ae31af68e7b6cef74954e2bbb3cd492b8b775c796c0e710bb606410c9"
                 }
             },
             {
                 "dep_type": "code",
                 "out_point": {
                     "index": "0x0",
-                    "tx_hash": "0x088d6fea298bc2f464f141a6f129dd91e61496b318ad364080ceed140be5dddf"
+                    "tx_hash": "0x19b35bd168e6f34d993950b3258331fcd7b038e3db89ce81e14f9ca48c9ff170"
                 }
             },
             {
@@ -120,7 +120,7 @@
             {
                 "previous_output": {
                     "index": "0x0",
-                    "tx_hash": "0xaa6f2a459a8c962baab66ebf67cc35d8fdecee22b5be130d5fb62ada8b3fdf54"
+                    "tx_hash": "0x0a07b06fc33bee94e6537fc9373007bc1280cc7e3904169f4d6237933f176dae"
                 },
                 "since": "0x0"
             }
@@ -141,7 +141,7 @@
         ],
         "version": "0x0",
         "witnesses": [
-            "0x010000ff720000000c000000180000000c00000008000000040000005600000000550000001000000055000000550000004100000020da699152a6b45d3aac5cd80e23ae808563e91f34edeb8daba6ab2cca6e872ff646401ce75f83f14a427ee23136fdab775a181d485c87ef41677558778a0dd449"
+            "0x020000ff620000000800000056000000005500000010000000550000005500000041000000202ff48ddf895ce2d8786d0af5f68d21f90705534dbc453c891272cee1a6650a004f755326ad2a9336181139923cea1fc0ddc7cd1180e92c571f41f9f4ed05ed9d"
         ]
     }
 }

@@ -179,7 +179,6 @@ pub fn println_rtx(tx_resolved: &ckb_types::core::cell::ResolvedTransaction) {
 }
 
 static BINARY_ALWAYS_SUCCESS: &[u8] = include_bytes!("../../../build/always_success");
-static BINARY_SECP256K1_DATA: &[u8] = include_bytes!("../../../build/secp256k1_data");
 static BINARY_OMNI_LOCK: &[u8] = include_bytes!("../../../build/omni_lock");
 
 pub const IDENTITY_FLAGS_PUBKEY_HASH: u8 = 0;
@@ -387,13 +386,11 @@ fn test_cobuild_sighash_all_bitcoin_p2pkh_compressed() {
 
     // Create cell meta
     let cell_meta_always_success = px.insert_cell_data(&mut dl, BINARY_ALWAYS_SUCCESS);
-    let cell_meta_secp256k1_data = px.insert_cell_data(&mut dl, BINARY_SECP256K1_DATA);
     let cell_meta_omni_lock = px.insert_cell_data(&mut dl, BINARY_OMNI_LOCK);
     let cell_meta_i = px.insert_cell_fund(&mut dl, px.create_script(&cell_meta_omni_lock, &args), None, &[]);
 
     // Create cell dep
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_always_success));
-    let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_secp256k1_data));
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_omni_lock));
 
     // Create input
@@ -450,13 +447,11 @@ fn test_cobuild_sighash_all_only_ethereum() {
 
     // Create cell meta
     let cell_meta_always_success = px.insert_cell_data(&mut dl, BINARY_ALWAYS_SUCCESS);
-    let cell_meta_secp256k1_data = px.insert_cell_data(&mut dl, BINARY_SECP256K1_DATA);
     let cell_meta_omni_lock = px.insert_cell_data(&mut dl, BINARY_OMNI_LOCK);
     let cell_meta_i = px.insert_cell_fund(&mut dl, px.create_script(&cell_meta_omni_lock, &args), None, &[]);
 
     // Create cell dep
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_always_success));
-    let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_secp256k1_data));
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_omni_lock));
 
     // Create input
@@ -500,13 +495,11 @@ fn test_cobuild_otx_bitcoin_p2pkh_compressed() {
 
     // Create cell meta
     let cell_meta_always_success = px.insert_cell_data(&mut dl, BINARY_ALWAYS_SUCCESS);
-    let cell_meta_secp256k1_data = px.insert_cell_data(&mut dl, BINARY_SECP256K1_DATA);
     let cell_meta_omni_lock = px.insert_cell_data(&mut dl, BINARY_OMNI_LOCK);
     let cell_meta_i = px.insert_cell_fund(&mut dl, px.create_script(&cell_meta_omni_lock, &args), None, &[]);
 
     // Create cell dep
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_always_success));
-    let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_secp256k1_data));
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_omni_lock));
 
     // Create input
@@ -552,7 +545,7 @@ fn test_cobuild_otx_bitcoin_p2pkh_compressed() {
         .message(msgs)
         .input_cells(1u32.pack())
         .output_cells(1u32.pack())
-        .cell_deps(3u32.pack())
+        .cell_deps(2u32.pack())
         .header_deps(0u32.pack())
         .build();
     let wl = schemas::top_level::WitnessLayout::new_builder().set(ox).build();
@@ -577,13 +570,11 @@ fn generate_otx_a0(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core::Tra
 
     // Create cell meta
     let cell_meta_always_success = px.insert_cell_data(dl, BINARY_ALWAYS_SUCCESS);
-    let cell_meta_secp256k1_data = px.insert_cell_data(dl, BINARY_SECP256K1_DATA);
     let cell_meta_omni_lock = px.insert_cell_data(dl, BINARY_OMNI_LOCK);
     let cell_meta_i = px.insert_cell_fund(dl, px.create_script(&cell_meta_omni_lock, &args), None, &[]);
 
     // Create cell dep
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_always_success));
-    let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_secp256k1_data));
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_omni_lock));
     let tx_builder = tx_builder
         .header_dep(ckb_types::packed::Byte32::from_slice(&[11u8; 32]).unwrap())
@@ -628,7 +619,7 @@ fn generate_otx_a0(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core::Tra
         .message(msgs)
         .input_cells(1u32.pack())
         .output_cells(1u32.pack())
-        .cell_deps(3u32.pack())
+        .cell_deps(2u32.pack())
         .header_deps(2u32.pack())
         .build();
     let wl = schemas::top_level::WitnessLayout::new_builder().set(ox).build();
@@ -649,13 +640,11 @@ fn generate_otx_b0(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core::Tra
 
     // Create cell meta
     let cell_meta_always_success = px.insert_cell_data(dl, BINARY_ALWAYS_SUCCESS);
-    let cell_meta_secp256k1_data = px.insert_cell_data(dl, BINARY_SECP256K1_DATA);
     let cell_meta_omni_lock = px.insert_cell_data(dl, BINARY_OMNI_LOCK);
     let cell_meta_i = px.insert_cell_fund(dl, px.create_script(&cell_meta_omni_lock, &args), None, &[]);
 
     // Create cell dep
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_always_success));
-    let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_secp256k1_data));
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_omni_lock));
 
     let tx_builder = tx_builder
@@ -701,7 +690,7 @@ fn generate_otx_b0(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core::Tra
         .message(msgs)
         .input_cells(1u32.pack())
         .output_cells(1u32.pack())
-        .cell_deps(3u32.pack())
+        .cell_deps(2u32.pack())
         .header_deps(2u32.pack())
         .build();
     let wl = schemas::top_level::WitnessLayout::new_builder().set(ox).build();
@@ -722,13 +711,11 @@ fn generate_otx_c0(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core::Tra
 
     // Create cell meta
     let cell_meta_always_success = px.insert_cell_data(dl, BINARY_ALWAYS_SUCCESS);
-    let cell_meta_secp256k1_data = px.insert_cell_data(dl, BINARY_SECP256K1_DATA);
     let cell_meta_omni_lock = px.insert_cell_data(dl, BINARY_OMNI_LOCK);
     let cell_meta_i = px.insert_cell_fund(dl, px.create_script(&cell_meta_omni_lock, &args), None, &[]);
 
     // Create cell dep
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_always_success));
-    let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_secp256k1_data));
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_omni_lock));
 
     // Create input
@@ -770,7 +757,7 @@ fn generate_otx_c0(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core::Tra
         .message(msgs)
         .input_cells(1u32.pack())
         .output_cells(1u32.pack())
-        .cell_deps(3u32.pack())
+        .cell_deps(2u32.pack())
         .header_deps(0u32.pack())
         .build();
     let wl = schemas::top_level::WitnessLayout::new_builder().set(ox).build();
@@ -799,13 +786,11 @@ fn generate_otx_d0(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core::Tra
 
     // Create cell meta
     let cell_meta_always_success = px.insert_cell_data(dl, BINARY_ALWAYS_SUCCESS);
-    let cell_meta_secp256k1_data = px.insert_cell_data(dl, BINARY_SECP256K1_DATA);
     let cell_meta_omni_lock = px.insert_cell_data(dl, BINARY_OMNI_LOCK);
     let cell_meta_i = px.insert_cell_fund(dl, px.create_script(&cell_meta_omni_lock, &args), None, &[]);
 
     // Create cell dep
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_always_success));
-    let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_secp256k1_data));
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_omni_lock));
 
     // Create input
@@ -858,7 +843,7 @@ fn generate_otx_d0(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core::Tra
         .message(msgs)
         .input_cells(1u32.pack())
         .output_cells(1u32.pack())
-        .cell_deps(3u32.pack())
+        .cell_deps(2u32.pack())
         .header_deps(0u32.pack())
         .build();
     let wl = schemas::top_level::WitnessLayout::new_builder().set(ox).build();
@@ -1083,11 +1068,9 @@ fn test_cobuild_otx_prefix() {
     let pubkey_hash = hash_keccak160(&pubkey.as_ref()[..]);
     let args = [vec![IDENTITY_FLAGS_ETHEREUM], pubkey_hash, vec![0x00]].concat();
     let cell_meta_always_success = px.insert_cell_data(&mut dl, BINARY_ALWAYS_SUCCESS);
-    let cell_meta_secp256k1_data = px.insert_cell_data(&mut dl, BINARY_SECP256K1_DATA);
     let cell_meta_omni_lock = px.insert_cell_data(&mut dl, BINARY_OMNI_LOCK);
     let cell_meta_i = px.insert_cell_fund(&mut dl, px.create_script(&cell_meta_omni_lock, &args), None, &[]);
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_always_success));
-    let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_secp256k1_data));
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_omni_lock));
     let tx_builder = tx_builder.input(px.create_cell_input(&cell_meta_i));
     let tx_builder = tx_builder.output(px.create_cell_output(px.create_script(&cell_meta_always_success, &[]), None));
@@ -1096,7 +1079,7 @@ fn test_cobuild_otx_prefix() {
 
     // Append otx
     let os = schemas::basic::OtxStart::new_builder()
-        .start_cell_deps(3u32.pack())
+        .start_cell_deps(2u32.pack())
         .start_header_deps(0u32.pack())
         .start_input_cell(1u32.pack())
         .start_output_cell(1u32.pack())
@@ -1200,11 +1183,9 @@ fn test_cobuild_otx_prefix_and_suffix() {
     let pubkey_hash = hash_keccak160(&pubkey.as_ref()[..]);
     let args = [vec![IDENTITY_FLAGS_ETHEREUM], pubkey_hash, vec![0x00]].concat();
     let cell_meta_always_success = px.insert_cell_data(&mut dl, BINARY_ALWAYS_SUCCESS);
-    let cell_meta_secp256k1_data = px.insert_cell_data(&mut dl, BINARY_SECP256K1_DATA);
     let cell_meta_omni_lock = px.insert_cell_data(&mut dl, BINARY_OMNI_LOCK);
     let cell_meta_i = px.insert_cell_fund(&mut dl, px.create_script(&cell_meta_omni_lock, &args), None, &[]);
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_always_success));
-    let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_secp256k1_data));
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_omni_lock));
     let tx_builder = tx_builder.input(px.create_cell_input(&cell_meta_i));
     let tx_builder = tx_builder.output(px.create_cell_output(px.create_script(&cell_meta_always_success, &[]), None));

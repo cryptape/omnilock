@@ -114,7 +114,6 @@ pub const COMMON_PREFIX: &str = "CKB transaction: 0x";
 lazy_static! {
     pub static ref OMNI_LOCK: Bytes = Bytes::from(&include_bytes!("../../../build/omni_lock")[..]);
     pub static ref SIMPLE_UDT: Bytes = Bytes::from(&include_bytes!("../../../build/simple_udt")[..]);
-    pub static ref SECP256K1_DATA_BIN: Bytes = Bytes::from(&include_bytes!("../../../build/secp256k1_data")[..]);
     pub static ref ALWAYS_SUCCESS: Bytes = Bytes::from(&include_bytes!("../../../build/always_success")[..]);
     pub static ref VALIDATE_SIGNATURE_RSA: Bytes =
         Bytes::from(&include_bytes!("../../../build/validate_signature_rsa")[..]);
@@ -711,25 +710,11 @@ pub fn gen_tx_with_grouped_args(
         .capacity(Capacity::bytes(ALWAYS_SUCCESS.len()).expect("script capacity").pack())
         .build();
     dummy.cells.insert(always_success_out_point.clone(), (always_success_cell, ALWAYS_SUCCESS.clone()));
-    // setup secp256k1_data dep
-    let secp256k1_data_out_point = {
-        let tx_hash = {
-            let mut buf = [0u8; 32];
-            rng.fill(&mut buf);
-            buf.pack()
-        };
-        OutPoint::new(tx_hash, 0)
-    };
-    let secp256k1_data_cell = CellOutput::new_builder()
-        .capacity(Capacity::bytes(SECP256K1_DATA_BIN.len()).expect("data capacity").pack())
-        .build();
-    dummy.cells.insert(secp256k1_data_out_point.clone(), (secp256k1_data_cell, SECP256K1_DATA_BIN.clone()));
     // setup default tx builder
     let dummy_capacity = Capacity::shannons(42);
     let mut tx_builder = TransactionBuilder::default()
         .cell_dep(CellDep::new_builder().out_point(sighash_all_out_point).dep_type(DepType::Code.into()).build())
         .cell_dep(CellDep::new_builder().out_point(always_success_out_point).dep_type(DepType::Code.into()).build())
-        .cell_dep(CellDep::new_builder().out_point(secp256k1_data_out_point).dep_type(DepType::Code.into()).build())
         .output(CellOutput::new_builder().capacity(dummy_capacity.pack()).build())
         .output_data(Bytes::new().pack());
 
