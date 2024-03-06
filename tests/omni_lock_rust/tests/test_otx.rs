@@ -360,6 +360,7 @@ const ERROR_SEAL: i8 = 117;
 const ERROR_FLOW: i8 = 118;
 const ERROR_OTX_START_DUP: i8 = 119;
 const ERROR_WRONG_OTX: i8 = 120;
+const ERROR_MOL2_UNEXPECTED: i8 = 123;
 
 pub fn assert_script_error(err: ckb_error::Error, err_code: i8) {
     let error_string = err.to_string();
@@ -584,6 +585,9 @@ fn generate_otx_a0(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core::Tra
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_always_success));
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_secp256k1_data));
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_omni_lock));
+    let tx_builder = tx_builder
+        .header_dep(ckb_types::packed::Byte32::from_slice(&[11u8; 32]).unwrap())
+        .header_dep(ckb_types::packed::Byte32::from_slice(&[12u8; 32]).unwrap());
 
     // Create input
     let tx_builder = tx_builder.input(px.create_cell_input(&cell_meta_i));
@@ -625,7 +629,7 @@ fn generate_otx_a0(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core::Tra
         .input_cells(1u32.pack())
         .output_cells(1u32.pack())
         .cell_deps(3u32.pack())
-        .header_deps(0u32.pack())
+        .header_deps(2u32.pack())
         .build();
     let wl = schemas::top_level::WitnessLayout::new_builder().set(ox).build();
     let tx_builder = tx_builder.witness(wl.as_bytes().pack());
@@ -653,6 +657,10 @@ fn generate_otx_b0(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core::Tra
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_always_success));
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_secp256k1_data));
     let tx_builder = tx_builder.cell_dep(px.create_cell_dep(&cell_meta_omni_lock));
+
+    let tx_builder = tx_builder
+        .header_dep(ckb_types::packed::Byte32::from_slice(&[21u8; 32]).unwrap())
+        .header_dep(ckb_types::packed::Byte32::from_slice(&[22u8; 32]).unwrap());
 
     // Create input
     let tx_builder = tx_builder.input(px.create_cell_input(&cell_meta_i));
@@ -694,7 +702,7 @@ fn generate_otx_b0(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core::Tra
         .input_cells(1u32.pack())
         .output_cells(1u32.pack())
         .cell_deps(3u32.pack())
-        .header_deps(0u32.pack())
+        .header_deps(2u32.pack())
         .build();
     let wl = schemas::top_level::WitnessLayout::new_builder().set(ox).build();
     let tx_builder = tx_builder.witness(wl.as_bytes().pack());
@@ -996,6 +1004,12 @@ fn generate_otx_a4_fail(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core
     tx.as_advanced_builder().set_witnesses(witnesses).build()
 }
 
+// Failed: None header and otx->header_deps not zero
+fn generate_otx_a5_fail(dl: &mut Resource, px: &mut Pickaxer) -> ckb_types::core::TransactionView {
+    let tx = generate_otx_a0(dl, px);
+    tx.as_advanced_builder().set_header_deps(vec![]).build()
+}
+
 fn assemble_otx(otxs: Vec<ckb_types::core::TransactionView>) -> ckb_types::core::TransactionView {
     let tx_builder = ckb_types::core::TransactionBuilder::default();
     let os = schemas::basic::OtxStart::new_builder().build();
@@ -1004,6 +1018,9 @@ fn assemble_otx(otxs: Vec<ckb_types::core::TransactionView>) -> ckb_types::core:
     for otx in otxs {
         for e in otx.cell_deps_iter() {
             tx_builder = tx_builder.cell_dep(e);
+        }
+        for e in otx.header_deps_iter() {
+            tx_builder = tx_builder.header_dep(e);
         }
         for e in otx.inputs().into_iter() {
             tx_builder = tx_builder.input(e);
@@ -1035,6 +1052,7 @@ fn merge_tx(
     let tx_builder = tx1.as_advanced_builder();
     tx_builder
         .set_cell_deps(merge_bytesvec(tx1.cell_deps(), tx2.cell_deps()))
+        .set_header_deps(merge_bytesvec(tx1.header_deps(), tx2.header_deps()))
         .set_inputs(merge_bytesvec(tx1.inputs(), tx2.inputs()))
         .set_outputs(merge_bytesvec(tx1.outputs(), tx2.outputs()))
         .set_witnesses(merge_bytesvec(tx1.witnesses(), tx2.witnesses()))
@@ -1089,6 +1107,9 @@ fn test_cobuild_otx_prefix() {
     for otx in otxs {
         for e in otx.cell_deps_iter() {
             tx_builder = tx_builder.cell_dep(e);
+        }
+        for e in otx.header_deps_iter() {
+            tx_builder = tx_builder.header_dep(e);
         }
         for e in otx.inputs().into_iter() {
             tx_builder = tx_builder.input(e);
@@ -1154,6 +1175,9 @@ fn test_cobuild_otx_prefix_and_suffix() {
     for otx in otxs {
         for e in otx.cell_deps_iter() {
             tx_builder = tx_builder.cell_dep(e);
+        }
+        for e in otx.header_deps_iter() {
+            tx_builder = tx_builder.header_dep(e);
         }
         for e in otx.inputs().into_iter() {
             tx_builder = tx_builder.input(e);
@@ -1241,7 +1265,8 @@ fn test_cobuild_otx_random() {
     failed_set.push(("a1", Box::new(generate_otx_a1_fail), ERROR_SEAL));
     failed_set.push(("a2", Box::new(generate_otx_a2_fail), ERROR_FLOW));
     failed_set.push(("a3", Box::new(generate_otx_a3_fail), ERROR_TYPESCRIPT_MISSING));
-    failed_set.push(("a3", Box::new(generate_otx_a4_fail), ERROR_WRONG_OTX));
+    failed_set.push(("a4", Box::new(generate_otx_a4_fail), ERROR_WRONG_OTX));
+    failed_set.push(("a5", Box::new(generate_otx_a5_fail), ERROR_MOL2_UNEXPECTED));
 
     for i in 0..failed_set.len() {
         let mut dl = Resource::default();
