@@ -89,6 +89,9 @@ pub const ERROR_COBUILD_MOL2_ERR_DATA: i8 = 0x07;
 pub const ERROR_SIGHASHALL_DUP: i8 = 113;
 pub const MOL2_ERR_OVERFLOW: i8 = 8; // parse witnesses error
 
+pub const ERROR_IDENTITY_WRONG_ARGS: i8 = 71;
+pub const ERROR_ARGS_FORMAT: i8 = 87;
+
 // https://github.com/bitcoin-core/secp256k1/blob/d373bf6d08c82ac5496bf8103698c9f54d8d99d2/include/secp256k1.h#L219
 pub const SECP256K1_TAG_PUBKEY_EVEN: u8 = 0x02;
 pub const SECP256K1_TAG_PUBKEY_ODD: u8 = 0x03;

@@ -18,7 +18,7 @@ use ckb_types::{
     bytes::Bytes,
     bytes::BytesMut,
     core::{cell::ResolvedTransaction, EpochNumberWithFraction, HeaderView},
-    packed::WitnessArgs,
+    packed::{CellInput, WitnessArgs},
     prelude::*,
     H256,
 };
@@ -1204,4 +1204,86 @@ fn test_cobuild_check_action_script_hash_is_in_2_outputs() {
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     verify_result.expect("pass verification");
+}
+
+#[test]
+fn test_none_witness() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
+    config
+        .set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHUNCOMPRESSED, pubkey_err: false }));
+
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let tx = tx.as_advanced_builder().set_witnesses(Vec::new()).build();
+
+    let resolved_tx: ResolvedTransaction = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    assert_script_error(verify_result.unwrap_err(), ERROR_IDENTITY_WRONG_ARGS);
+}
+
+#[test]
+fn test_big_output_data() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
+    config
+        .set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHUNCOMPRESSED, pubkey_err: false }));
+
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = tx.as_advanced_builder().set_outputs_data(vec![[0u8; 1024 * 700].pack()]).build();
+
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx: ResolvedTransaction = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    verify_result.expect("pass verification");
+}
+
+#[test]
+fn test_big_witness() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
+    config
+        .set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHUNCOMPRESSED, pubkey_err: false }));
+
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = tx.as_advanced_builder().witness([0u8; 1024 * 700].pack()).build();
+
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx: ResolvedTransaction = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    verify_result.expect("pass verification");
+}
+
+#[test]
+fn test_big_script() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_BITCOIN, false);
+    config
+        .set_chain_config(Box::new(BitcoinConfig { sign_vtype: BITCOIN_V_TYPE_P2PKHUNCOMPRESSED, pubkey_err: false }));
+
+    let lock_args = config.gen_args();
+
+    let lock_args = Bytes::from(vec![lock_args.to_vec(), vec![0u8; 1024 * 700]].concat());
+
+    let tx = gen_tx_with_grouped_args(&mut data_loader, vec![(lock_args, 1)], &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx: ResolvedTransaction = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    assert_script_error(verify_result.unwrap_err(), ERROR_ARGS_FORMAT);
 }

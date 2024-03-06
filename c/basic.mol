@@ -32,14 +32,14 @@ table ScriptInfo {
 vector ScriptInfoVec <ScriptInfo>;
 
 table ResolvedInputs {
-		outputs: CellOutputVec,
-		outputs_data: BytesVec,
+    outputs: CellOutputVec,
+    outputs_data: BytesVec,
 }
 
 table BuildingPacketV1 {
     message: Message,
     payload: Transaction,
-	resolved_inputs: ResolvedInputs,
+    resolved_inputs: ResolvedInputs,
     change_output: Uint32Opt,
     script_infos: ScriptInfoVec,
     lock_actions: ActionVec,
