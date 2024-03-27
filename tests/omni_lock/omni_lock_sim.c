@@ -3,6 +3,7 @@
 #else
 #define ASSERT(s) (void)0
 #endif
+#include <assert.h>
 
 int ckb_exit(signed char code);
 
@@ -14,15 +15,6 @@ void debug_print_hex(const char* prefix, const uint8_t* buf, size_t length) {
     printf("%02x ", buf[i]);
   }
   printf("\n");
-}
-
-int ckb_cobuild_entry(const Env* env, ScriptEntryType entry,
-                      bool* cobuild_enabled) {
-  (void)env;
-  (void)entry;
-
-  *cobuild_enabled = false;
-  return 0;
 }
 
 /* hex2bin modified from
@@ -61,7 +53,6 @@ UTEST(pubkey_hash, wrong_signature) {
 
   g_setting.wrong_signature = true;
   convert_setting_to_states();
-
   int r = simulator_main();
   bool b = (r == ERROR_IDENTITY_PUBKEY_BLAKE160_HASH ||
             r == ERROR_IDENTITY_SECP_RECOVER_PUBKEY ||

@@ -1,36 +1,33 @@
+
 TARGET := riscv64-unknown-linux-gnu
 CC := $(TARGET)-gcc
 LD := $(TARGET)-gcc
 OBJCOPY := $(TARGET)-objcopy
-CFLAGS := -fPIC -O3 -fno-builtin-printf -fno-builtin-memcmp -nostdinc -nostdlib -nostartfiles -fvisibility=hidden -fdata-sections -ffunction-sections -I deps/secp256k1/src -I deps/secp256k1 -I deps/ckb-c-stdlib -I deps/ckb-c-stdlib/libc -I deps/ckb-c-stdlib/molecule -I c -I build -Wall -Werror -Wno-nonnull -Wno-nonnull-compare -Wno-unused-function -g
-LDFLAGS := -nostdlib -nostartfiles -fno-builtin -Wl,-static -Wl,--gc-sections
+CFLAGS := -g -fPIC -O3 -fno-builtin \
+		-nostdinc -nostdlib -nostartfiles -fvisibility=hidden -fdata-sections -ffunction-sections \
+		-I deps/secp256k1/src -I deps/secp256k1 -I deps/ckb-c-stdlib -I deps/ckb-c-stdlib/libc \
+		-I deps/ckb-c-stdlib/molecule -I c -I build -I deps/sparse-merkle-tree/c \
+		-Wall -Werror -Wno-nonnull -Wno-nonnull-compare -Wno-unused-function -Wno-array-bounds -Wno-stringop-overflow \
+		-DCKB_C_STDLIB_PRINTF -DCKB_C_STDLIB_PRINTF_BUFFER_SIZE=1024
+
+LDFLAGS := -nostdlib -nostartfiles -Wl,-static -Wl,--gc-sections
+
 SECP256K1_SRC := deps/secp256k1/src/ecmult_static_pre_context.h
 
-
-OMNI_LOCK_CFLAGS :=$(CFLAGS) -I deps/sparse-merkle-tree/c
-# enable log
-OMNI_LOCK_CFLAGS += -DCKB_C_STDLIB_PRINTF -DCKB_C_STDLIB_PRINTF_BUFFER_SIZE=1024
-
-
-PROTOCOL_HEADER := c/blockchain.h
-PROTOCOL_SCHEMA := c/blockchain.mol
-PROTOCOL_VERSION := d75e4c56ffa40e17fd2fe477da3f98c5578edcd1
-PROTOCOL_URL := https://raw.githubusercontent.com/nervosnetwork/ckb/${PROTOCOL_VERSION}/util/types/schemas/blockchain.mol
 MOLC := moleculec
 MOLC_VERSION := 0.7.0
 
 # docker pull nervos/ckb-riscv-gnu-toolchain:gnu-jammy-20230214
 BUILDER_DOCKER := nervos/ckb-riscv-gnu-toolchain@sha256:d3f649ef8079395eb25a21ceaeb15674f47eaa2d8cc23adc8bcdae3d5abce6ec
-CLANG_FORMAT_DOCKER := kason223/clang-format@sha256:3cce35b0400a7d420ec8504558a02bdfc12fd2d10e40206f140c4545059cd95d
+CLANG_FORMAT_DOCKER := xujiandong/ckb-riscv-llvm-toolchain@sha256:6409ab0d3e335c74088b54f4f73252f4b3367ae364d5c7ca7acee82135f5af4d
 
 all: build/omni_lock build/always_success
 
-all-via-docker: ${PROTOCOL_HEADER}
+all-via-docker:
 	docker run --rm -v `pwd`:/code ${BUILDER_DOCKER} bash -c "cd /code && make"
 
-
 build/always_success: c/always_success.c
-	$(CC) $(OMNI_LOCK_CFLAGS) $(LDFLAGS) -o $@ $<
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $<
 	$(OBJCOPY) --only-keep-debug $@ $@.debug
 	$(OBJCOPY) --strip-debug --strip-all $@
 
@@ -48,15 +45,12 @@ $(SECP256K1_SRC):
 		CC=$(CC) LD=$(LD) ./configure --enable-ecmult-static-precomputation --with-ecmult-window=6 --enable-module-recovery --host=$(TARGET) && \
 		make src/ecmult_static_pre_context.h src/ecmult_static_context.h
 
-${PROTOCOL_SCHEMA}:
-	curl -L -o $@ ${PROTOCOL_URL}
-
 ALL_C_SOURCE := $(wildcard c/omni_lock.c c/omni_lock_acp.h c/omni_lock_time_lock.h \
 	tests/omni_lock/omni_lock_sim.c tests/omni_lock/ckb_syscall_omni_lock_sim.h tests/omni_lock/omni_lock_supply.h\
-	c/blake2b_decl_only.h c/cobuild.h c/cobuild.c c/molecule2_verify.h)
+	c/cobuild.h c/molecule2_verify.h mol2_utils.h)
 
 fmt:
-	docker run --rm -v `pwd`:/code ${CLANG_FORMAT_DOCKER} bash -c "cd code && clang-format -i -style='{BasedOnStyle: google, SortIncludes: false}' $(ALL_C_SOURCE)"
+	docker run -u $(shell id -u):$(shell id -g) --rm -v `pwd`:/code ${CLANG_FORMAT_DOCKER} bash -c "cd code && clang-format -i -style='{BasedOnStyle: google, SortIncludes: false}' $(ALL_C_SOURCE)"
 	git diff --exit-code $(ALL_C_SOURCE)
 
 mol:
@@ -76,14 +70,10 @@ omni_lock_mol:
 	${MOLC} --language - --schema-file c/omni_lock.mol --format json > build/omni_lock_mol2.json
 	moleculec-c2 --input build/omni_lock_mol2.json | clang-format -style=Google > c/omni_lock_mol2.h
 
-build/cobuild.o: c/cobuild.c c/cobuild.h c/mol2_utils.h c/molecule2_verify.h
-	$(CC) -c $(OMNI_LOCK_CFLAGS) -DMOLECULEC_C2_DECLARATION_ONLY -o $@ $<
-
-build/omni_lock.o: c/omni_lock.c c/omni_lock_supply.h c/omni_lock_acp.h build/secp256k1_data_info.h $(SECP256K1_SRC) c/ckb_identity.h c/mol2_utils.h c/cobuild_basic_mol2.h c/molecule2_verify.h
-	$(CC) -c $(OMNI_LOCK_CFLAGS) -o $@ $<
-
-build/omni_lock: build/omni_lock.o build/cobuild.o
-	$(CC) $(LDFLAGS) -o $@ $^
+build/omni_lock: c/omni_lock.c c/omni_lock_supply.h c/omni_lock_acp.h build/secp256k1_data_info.h $(SECP256K1_SRC) \
+				c/ckb_identity.h c/mol2_utils.h c/cobuild_basic_mol2.h c/molecule2_verify.h \
+				c/cobuild.h c/mol2_utils.h c/molecule2_verify.h
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $<
 	cp $@ $@.debug
 	$(OBJCOPY) --strip-debug --strip-all $@
 
@@ -106,12 +96,6 @@ clean2:
 	rm -f build/*.o
 	rm -f build/always_success
 	
-install-tools:
-	if [ ! -x "$$(command -v "${MOLC}")" ] \
-			|| [ "$$(${MOLC} --version | awk '{ print $$2 }' | tr -d ' ')" != "${MOLC_VERSION}" ]; then \
-		cargo install --force --version "${MOLC_VERSION}" "${MOLC}"; \
-	fi
-
 dist: clean all
 
 .PHONY: all all-via-docker dist clean package-clean package publish

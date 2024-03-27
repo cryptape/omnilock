@@ -1,15 +1,13 @@
 // clang-format off
 #include <stdio.h>
+#include <blake2b.h>
+
 // it's used by blockchain-api2.h, the behavior when panic
 #ifndef MOL2_EXIT
 #define MOL2_EXIT ckb_exit
 #endif
 int ckb_exit(signed char);
 #define MOLECULEC_VERSION 7000
-
-// Includes the actual implementation here
-#include <blake2b.h>
-
 #include "blockchain-api2.h"
 #include "ckb_consts.h"
 
@@ -20,27 +18,21 @@ int ckb_exit(signed char);
 #else
 #include "ckb_syscalls.h"
 #endif
-// secp256k1_helper.h is not part of ckb-c-stdlib, can't be included in ckb_identity.h
-// An upgraded version is provided.
 #include "secp256k1_helper.h"
+// CHECK is defined in secp256k1
+#undef CHECK
 #include "ckb_swappable_signatures.h"
-
 #include "ckb_identity.h"
 #include "ckb_smt.h"
 
-// CHECK is defined in secp256k1
-#undef CHECK
 #include "rce.h"
 #include "omni_lock_mol2.h"
-#include "cobuild_basic_mol2.h"
-#include "cobuild_top_level_mol2.h"
 #include "molecule2_verify.h"
 
 #include "omni_lock_acp.h"
 #include "omni_lock_time_lock.h"
 #include "omni_lock_supply.h"
 #include "cobuild.h"
-
 // clang-format on
 
 #define SCRIPT_SIZE 32768

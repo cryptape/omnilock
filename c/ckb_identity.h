@@ -1,12 +1,7 @@
 #ifndef CKB_C_STDLIB_CKB_IDENTITY_H_
 #define CKB_C_STDLIB_CKB_IDENTITY_H_
 
-#define BLAKE2_IMPL_H
-#define BLAKE2_REF_C
 #include <blake2b.h>
-#undef BLAKE2_REF_C
-#undef BLAKE2_IMPL_H
-
 #include <ckb_exec.h>
 
 #include "blockchain.h"

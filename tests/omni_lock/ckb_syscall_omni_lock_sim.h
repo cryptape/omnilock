@@ -370,9 +370,11 @@ void convert_setting_to_states(void) {
   {
     mol_builder_t witness_builder;
     MolBuilder_BytesVec_init(&witness_builder);
-    MolBuilder_BytesVec_push(&witness_builder, g_states.witness[0].ptr,
-                             g_states.witness[0].size);
+    mol_seg_t witness =
+        build_bytes(g_states.witness[0].ptr, g_states.witness[0].size);
+    MolBuilder_BytesVec_push(&witness_builder, witness.ptr, witness.size);
     mol_seg_res_t witness_res = MolBuilder_BytesVec_build(witness_builder);
+    free(witness.ptr);
 
     mol_builder_t tx_builder;
     MolBuilder_Transaction_init(&tx_builder);
@@ -937,6 +939,11 @@ void* ckb_dlsym(void* handle, const char* symbol) {
 int ckb_exec_cell(const uint8_t* code_hash, uint8_t hash_type, uint32_t offset,
                   uint32_t length, int argc, const char* argv[]) {
   return 0;
+}
+
+int ckb_load_cell(void* addr, uint64_t* len, size_t offset, size_t index,
+                  size_t source) {
+  return -1;
 }
 
 #undef ASSERT

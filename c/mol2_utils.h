@@ -6,12 +6,7 @@
 #ifndef MOL2_UTILS
 #define MOL2_UTILS
 
-#define BLAKE2_IMPL_H
-#define BLAKE2_REF_C
 #include "blake2b.h"
-#undef BLAKE2_REF_C
-#undef BLAKE2_IMPL_H
-
 #include "ckb_consts.h"
 #include "ckb_syscall_apis.h"
 #include "molecule2_reader.h"
