@@ -46,6 +46,7 @@ enum ErrorCode {
 #define CHECK2(cond, code) \
   do {                     \
     if (!(cond)) {         \
+      printf("error at %s:%d, error code %d", __FILE__, __LINE__, code); \
       err = code;          \
       ASSERT(0);           \
       goto exit;           \
@@ -56,6 +57,7 @@ enum ErrorCode {
   do {                  \
     int code = (_code); \
     if (code != 0) {    \
+      printf("error at %s:%d, error code %d", __FILE__, __LINE__, code); \
       err = code;       \
       ASSERT(0);        \
       goto exit;        \

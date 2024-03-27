@@ -22,6 +22,7 @@
 mol_seg_t build_bytes(const uint8_t* data, uint32_t len);
 mol_seg_t build_script(const uint8_t* code_hash, uint8_t hash_type,
                        const uint8_t* args, uint32_t args_len);
+int ckb_load_transaction(void* addr, uint64_t* len, size_t offset);
 int ckb_load_tx_hash(void* addr, uint64_t* len, size_t offset);
 int ckb_load_witness(void* addr, uint64_t* len, size_t offset, size_t index,
                      size_t source);
@@ -85,8 +86,6 @@ typedef struct RcLockSettingType {
   // test scheme
   bool wrong_signature;
   bool wrong_pubkey_hash;
-  // owner lock without rc doesn't require witness
-  bool empty_witness;
 } RcLockSettingType;
 
 RcLockSettingType g_setting = {0};
@@ -109,6 +108,7 @@ typedef struct RcLockStates {
   uint32_t witness_count;
 
   slice_t script;
+  slice_t transaction;
 
   slice_t cell_data[64];
   uint32_t cell_data_count;
@@ -366,6 +366,26 @@ void convert_setting_to_states(void) {
   // make witness again, with correct signature
   convert_witness();
 
+  // Build a dummy transaction that is just enough for omnilock
+  {
+    mol_builder_t witness_builder;
+    MolBuilder_BytesVec_init(&witness_builder);
+    mol_seg_t witness =
+        build_bytes(g_states.witness[0].ptr, g_states.witness[0].size);
+    MolBuilder_BytesVec_push(&witness_builder, witness.ptr, witness.size);
+    mol_seg_res_t witness_res = MolBuilder_BytesVec_build(witness_builder);
+    free(witness.ptr);
+
+    mol_builder_t tx_builder;
+    MolBuilder_Transaction_init(&tx_builder);
+    MolBuilder_Transaction_set_witnesses(&tx_builder, witness_res.seg.ptr,
+                                         witness_res.seg.size);
+    mol_seg_res_t tx_res = MolBuilder_Transaction_build(tx_builder);
+
+    g_states.transaction.ptr = tx_res.seg.ptr;
+    g_states.transaction.size = tx_res.seg.size;
+  }
+
   // Script
   uint8_t script_args[1 + 20 + 1 + 32 + 2 + 8] = {0};
   uint32_t script_args_len = 22;
@@ -549,12 +569,29 @@ int ckb_load_witness(void* addr, uint64_t* len, size_t offset, size_t index,
     return CKB_INDEX_OUT_OF_BOUND;
   }
 
-  if (g_setting.empty_witness) {
+  slice_t seg = g_states.witness[0];
+
+  if (addr == NULL) {
+    *len = seg.size;
+    return 0;
+  }
+  if (seg.size <= offset) {
     *len = 0;
     return 0;
   }
+  uint32_t remaining = seg.size - offset;
+  if (remaining > *len) {
+    memcpy(addr, seg.ptr + offset, *len);
+  } else {
+    memcpy(addr, seg.ptr + offset, remaining);
+  }
+  *len = remaining;
 
-  slice_t seg = g_states.witness[0];
+  return 0;
+}
+
+int ckb_load_transaction(void* addr, uint64_t* len, size_t offset) {
+  slice_t seg = g_states.transaction;
 
   if (addr == NULL) {
     *len = seg.size;
@@ -664,7 +701,7 @@ int ckb_load_cell_data(void* addr, uint64_t* len, size_t offset, size_t index,
                        size_t source) {
   if (source == CKB_SOURCE_CELL_DEP && index == SPECIAL_SECP256K1_INDEX) {
     ASSERT(*len == 1048576);
-    FILE* input = fopen("build/secp256k1_data_20210801", "rb");
+    FILE* input = fopen("build/secp256k1_data", "rb");
     size_t read_item = fread(addr, *len, 1, input);
     ASSERT(read_item == 1);
 
@@ -902,6 +939,11 @@ void* ckb_dlsym(void* handle, const char* symbol) {
 int ckb_exec_cell(const uint8_t* code_hash, uint8_t hash_type, uint32_t offset,
                   uint32_t length, int argc, const char* argv[]) {
   return 0;
+}
+
+int ckb_load_cell(void* addr, uint64_t* len, size_t offset, size_t index,
+                  size_t source) {
+  return -1;
 }
 
 #undef ASSERT

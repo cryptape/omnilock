@@ -1,19 +1,14 @@
-// uncomment to enable printf in CKB-VM
-// #define CKB_C_STDLIB_PRINTF
+// clang-format off
+#include <stdio.h>
+#include <blake2b.h>
 
 // it's used by blockchain-api2.h, the behavior when panic
 #ifndef MOL2_EXIT
 #define MOL2_EXIT ckb_exit
 #endif
 int ckb_exit(signed char);
-// in secp256k1_ctz64_var: we don't have __builtin_ctzl in gcc for RISC-V
-#define __builtin_ctzl secp256k1_ctz64_var_debruijn
-
-// clang-format off
-#include <stdio.h>
-#include "blockchain-api2.h"
 #define MOLECULEC_VERSION 7000
-#include "blockchain.h"
+#include "blockchain-api2.h"
 #include "ckb_consts.h"
 
 #if defined(CKB_USE_SIM)
@@ -23,23 +18,21 @@ int ckb_exit(signed char);
 #else
 #include "ckb_syscalls.h"
 #endif
-// secp256k1_helper_20210801.h is not part of ckb-c-stdlib, can't be included in ckb_identity.h
-// An upgraded version is provided.
-#include "secp256k1_helper_20210801.h"
+#include "secp256k1_helper.h"
+// CHECK is defined in secp256k1
+#undef CHECK
 #include "ckb_swappable_signatures.h"
-
 #include "ckb_identity.h"
 #include "ckb_smt.h"
 
-// CHECK is defined in secp256k1
-#undef CHECK
 #include "rce.h"
 #include "omni_lock_mol2.h"
+#include "molecule2_verify.h"
 
 #include "omni_lock_acp.h"
 #include "omni_lock_time_lock.h"
 #include "omni_lock_supply.h"
-
+#include "cobuild.h"
 // clang-format on
 
 #define SCRIPT_SIZE 32768
@@ -77,14 +70,14 @@ typedef struct ArgsType {
   uint64_t since;
 
   bool has_acp;
-  int ckb_minimum;  // Used for ACP
-  int udt_minimum;  // used for ACP
+  uint8_t ckb_minimum;  // Used for ACP
+  uint8_t udt_minimum;  // used for ACP
 
   bool has_supply;
   uint8_t info_cell[32];  // type script hash
 } ArgsType;
 
-// parsed from lock in witness
+// parsed from lock in witness or seal
 typedef struct WitnessLockType {
   bool has_identity;
   bool has_signature;
@@ -98,6 +91,8 @@ typedef struct WitnessLockType {
 
   SmtProofEntryVecType proofs;
 } WitnessLockType;
+
+uint8_t g_code_buff[MAX_CODE_SIZE] __attribute__((aligned(RISCV_PGSIZE)));
 
 // make compiler happy
 int make_cursor_from_witness(WitnessArgsType *witness, bool *_input) {
@@ -138,41 +133,27 @@ bool is_memory_enough(mol_seg_t seg, const uint8_t *cur, uint32_t len) {
 // <identity, 21 bytes> <omni_lock args>
 // <omni_lock flags, 1 byte>  <OMNI cell type id, 32 bytes, optional> <ckb/udt
 // min, 2 bytes, optional> <since, 8 bytes, optional>
-int parse_args(ArgsType *args) {
+int parse_args(ScriptType script, ArgsType *args) {
   int err = 0;
-  uint8_t script[SCRIPT_SIZE];
-  uint64_t len = SCRIPT_SIZE;
-  err = ckb_checked_load_script(script, &len, 0);
-  CHECK(err);
 
-  mol_seg_t script_seg;
-  script_seg.ptr = script;
-  script_seg.size = (mol_num_t)len;
-
-  mol_errno mol_err = MolReader_Script_verify(&script_seg, false);
-  CHECK2(mol_err == MOL_OK, ERROR_ENCODING);
-
-  mol_seg_t args_seg = MolReader_Script_get_args(&script_seg);
-  mol_seg_t seg = MolReader_Bytes_raw_bytes(&args_seg);
-
-  uint8_t *cur = seg.ptr;
+  // TODO: do we need to validate Script structure here?
+  mol2_cursor_t script_args = script.t->args(&script);
 
   // parse flags
-  CHECK2(is_memory_enough(seg, cur, 1), ERROR_ARGS_FORMAT);
-  uint8_t flags = *cur;
-  args->id.flags = flags;
-  cur = safe_move_to(seg, cur, 1);
-  CHECK2(cur != NULL, ERROR_ARGS_FORMAT);
+  CHECK2(script_args.size >= 1, ERROR_ARGS_FORMAT);
+  CHECK2(mol2_read_at(&script_args, &args->id.flags, 1) == 1,
+         ERROR_ARGS_FORMAT);
+  script_args = mol2_cursor_slice_start(&script_args, 1);
 
   // parse blake160
-  CHECK2(is_memory_enough(seg, cur, 20), ERROR_ARGS_FORMAT);
-  memcpy(args->id.id, cur, BLAKE160_SIZE);
-  cur = safe_move_to(seg, cur, 20);
-  CHECK2(cur != NULL, ERROR_ARGS_FORMAT);
+  CHECK2(script_args.size >= 20, ERROR_ARGS_FORMAT);
+  CHECK2(mol2_read_at(&script_args, args->id.id, 20) == 20, ERROR_ARGS_FORMAT);
+  script_args = mol2_cursor_slice_start(&script_args, 20);
 
-  CHECK2(is_memory_enough(seg, cur, 1), ERROR_ARGS_FORMAT);
-  args->omni_lock_flags = *cur;
-  cur = safe_move_to(seg, cur, 1);
+  CHECK2(script_args.size >= 1, ERROR_ARGS_FORMAT);
+  CHECK2(mol2_read_at(&script_args, &args->omni_lock_flags, 1) == 1,
+         ERROR_ARGS_FORMAT);
+  script_args = mol2_cursor_slice_start(&script_args, 1);
 
   args->has_omni_root = args->omni_lock_flags & OMNI_ROOT_MASK;
   args->has_acp = args->omni_lock_flags & ACP_MASK;
@@ -192,84 +173,36 @@ int parse_args(ArgsType *args) {
     expected_size += 32;
   }
 
-  if (expected_size == 0) {
-    CHECK2(cur == NULL, ERROR_ARGS_FORMAT);
-  } else {
-    CHECK2(cur != NULL, ERROR_ARGS_FORMAT);
-    CHECK2(is_memory_enough(seg, cur, expected_size), ERROR_ARGS_FORMAT);
+  CHECK2(script_args.size == expected_size, ERROR_ARGS_FORMAT);
+  if (expected_size > 0) {
     if (args->has_omni_root) {
-      memcpy(args->omni_root, cur, 32);
-      cur += 32;  // it's safe to move, already checked
+      CHECK2(mol2_read_at(&script_args, args->omni_root, 32) == 32,
+             ERROR_ARGS_FORMAT);
+      script_args = mol2_cursor_slice_start(&script_args, 32);
     }
     if (args->has_acp) {
-      args->ckb_minimum = cur[0];
-      args->udt_minimum = cur[1];
-      cur += 2;
+      CHECK2(mol2_read_at(&script_args, &args->ckb_minimum, 1) == 1,
+             ERROR_ARGS_FORMAT);
+      script_args = mol2_cursor_slice_start(&script_args, 1);
+      CHECK2(mol2_read_at(&script_args, &args->udt_minimum, 1) == 1,
+             ERROR_ARGS_FORMAT);
+      script_args = mol2_cursor_slice_start(&script_args, 1);
     }
     if (args->has_since) {
-      args->since = *(uint64_t *)cur;
-      cur += 8;
+      CHECK2(mol2_read_at(&script_args, (uint8_t *)(&args->since), 8) == 8,
+             ERROR_ARGS_FORMAT);
+      script_args = mol2_cursor_slice_start(&script_args, 8);
     }
     if (args->has_supply) {
-      memcpy(args->info_cell, cur, 32);
-      cur += 32;
+      CHECK2(mol2_read_at(&script_args, args->info_cell, 32) == 32,
+             ERROR_ARGS_FORMAT);
+      script_args = mol2_cursor_slice_start(&script_args, 32);
     }
-    CHECK2(cur == (seg.ptr + seg.size), ERROR_INVALID_MOL_FORMAT);
+    CHECK2(script_args.size == 0, ERROR_INVALID_MOL_FORMAT);
   }
 
 exit:
   return err;
-}
-
-static uint32_t read_from_witness(uintptr_t arg[], uint8_t *ptr, uint32_t len,
-                                  uint32_t offset) {
-  int err;
-  uint64_t output_len = len;
-  err = ckb_load_witness(ptr, &output_len, offset, arg[0], arg[1]);
-  if (err != 0) {
-    return 0;
-  }
-  if (output_len > len) {
-    return len;
-  } else {
-    return (uint32_t)output_len;
-  }
-}
-
-uint8_t g_witness_data_source[DEFAULT_DATA_SOURCE_LENGTH];
-int make_witness(WitnessArgsType *witness) {
-  int err = 0;
-  uint64_t witness_len = 0;
-  size_t source = CKB_SOURCE_GROUP_INPUT;
-  err = ckb_load_witness(NULL, &witness_len, 0, 0, source);
-  // when witness is missing, empty or not accessible, make it zero length.
-  // don't fail, because owner lock without omni doesn't require witness.
-  // when it's zero length, any further actions on witness will fail.
-  if (err != 0) {
-    witness_len = 0;
-  }
-
-  mol2_cursor_t cur;
-
-  cur.offset = 0;
-  cur.size = (mol_num_t)witness_len;
-
-  mol2_data_source_t *ptr = (mol2_data_source_t *)g_witness_data_source;
-
-  ptr->read = read_from_witness;
-  ptr->total_size = (uint32_t)witness_len;
-  // pass index and source as args
-  ptr->args[0] = 0;
-  ptr->args[1] = source;
-
-  ptr->cache_size = 0;
-  ptr->start_point = 0;
-  ptr->max_cache_size = MAX_CACHE_SIZE;
-  cur.data_source = ptr;
-
-  *witness = make_WitnessArgs(&cur);
-
-  return 0;
 }
 
 int smt_verify_identity(CkbIdentityType *id, SmtProofEntryVecType *proofs,
@@ -313,29 +246,14 @@ exit:
   return err;
 }
 
-int parse_witness_lock(WitnessLockType *witness_lock) {
+static int parse_witness_lock(WitnessLockType *witness_lock,
+                              mol2_cursor_t *seal) {
   int err = 0;
   witness_lock->has_signature = false;
   witness_lock->has_identity = false;
   witness_lock->has_proofs = false;
-
-  bool witness_existing = false;
-
-  WitnessArgsType witness_args;
-  err = make_witness(&witness_args);
-  CHECK(err);
-  witness_existing = witness_args.cur.size > 0;
-
-  // witness or witness lock can be empty if owner lock without omni is used
-  if (!witness_existing) return err;
-
-  BytesOptType mol_lock = witness_args.t->lock(&witness_args);
-  if (mol_lock.t->is_none(&mol_lock)) return err;
-
-  mol2_cursor_t mol_lock_bytes = mol_lock.t->unwrap(&mol_lock);
   // convert Bytes to OmniLockWitnessLock
-  OmniLockWitnessLockType mol_witness_lock =
-      make_OmniLockWitnessLock(&mol_lock_bytes);
+  OmniLockWitnessLockType mol_witness_lock = make_OmniLockWitnessLock(seal);
   IdentityOptType identity_opt =
       mol_witness_lock.t->omni_identity(&mol_witness_lock);
   witness_lock->has_identity = identity_opt.t->is_some(&identity_opt);
@@ -377,50 +295,41 @@ exit:
   return err;
 }
 
-#ifdef CKB_USE_SIM
-int simulator_main() {
-#else
-int main() {
-#endif
-  // don't move code_buff into global variable. It doesn't work.
-  // it's a ckb-vm bug: the global variable will be freezed:
-  // https://github.com/nervosnetwork/ckb-vm/blob/d43f58d6bf8cc6210721fdcdb6e5ecba513ade0c/src/machine/elf_adaptor.rs#L28-L32
-  // The code can't be loaded into frozen memory.
-  uint8_t code_buff[MAX_CODE_SIZE] __attribute__((aligned(RISCV_PGSIZE)));
-
+// smh is short for signing message hash
+int omnilock_entry(const Env *env, const uint8_t *smh, mol2_cursor_t seal) {
   int err = 0;
-
   WitnessLockType witness_lock = {0};
-  ArgsType args = {0};
+
   // this identity can be either from witness lock (witness_lock.id) or script
   // args (args.id)
   CkbIdentityType identity = {0};
+  // In some scenarios(e.g. owner lock), corresponding witness doesn't exist
+  if (seal.size > 0) {
+    err = parse_witness_lock(&witness_lock, &seal);
+    CHECK(err);
+  }
 
-  err = parse_witness_lock(&witness_lock);
-  CHECK(err);
+  const ArgsType *args = (const ArgsType *)env->script_specific_data;
 
-  err = parse_args(&args);
-  CHECK(err);
-
-  if (args.has_omni_root) {
+  if (args->has_omni_root) {
     if (witness_lock.has_identity) {
       identity = witness_lock.id;
     } else {
-      identity = args.id;
+      identity = args->id;
     }
   } else {
-    identity = args.id;
+    identity = args->id;
   }
 
   // regulation compliance, also as administrators
   if (witness_lock.has_identity) {
-    CHECK2(args.has_omni_root, ERROR_INVALID_MOL_FORMAT);
+    CHECK2(args->has_omni_root, ERROR_INVALID_MOL_FORMAT);
     CHECK2(witness_lock.has_proofs, ERROR_INVALID_MOL_FORMAT);
 
     RceState rce_state;
     rce_init_state(&rce_state);
     rce_state.rcrules_in_input_cell = true;
-    err = rce_gather_rcrules_recursively(&rce_state, args.omni_root, 0);
+    err = rce_gather_rcrules_recursively(&rce_state, args->omni_root, 0);
     CHECK(err);
     CHECK2(rce_state.rcrules_count > 0, ERROR_NO_OMNIRULE);
     CHECK2(rce_state.has_wl, ERROR_NO_WHITE_LIST);
@@ -430,29 +339,83 @@ int main() {
     CHECK(err);
   } else {
     // time lock is not used for administrators
-    if (args.has_since) {
-      err = check_since(args.since);
+    if (args->has_since) {
+      err = check_since(args->since);
       CHECK(err);
     }
-    if (args.has_supply) {
-      err = check_supply(args.info_cell);
+    if (args->has_supply) {
+      err = check_supply(args->info_cell);
       CHECK(err);
     }
     // ACP without signature is not used for administrators
-    if (args.has_acp && !witness_lock.has_signature) {
+    if (args->has_acp && !witness_lock.has_signature) {
       uint64_t min_ckb_amount = 0;
       uint128_t min_udt_amount = 0;
-      process_amount(args.ckb_minimum, args.udt_minimum, &min_ckb_amount,
+      process_amount(args->ckb_minimum, args->udt_minimum, &min_ckb_amount,
                      &min_udt_amount);
       // skip checking identity to follow ACP
       return check_payment_unlock(min_ckb_amount, min_udt_amount);
     }
   }
-  ckb_identity_init_code_buffer(code_buff, MAX_CODE_SIZE);
+  ckb_identity_init_code_buffer(g_code_buff, MAX_CODE_SIZE);
   err = ckb_verify_identity(&identity, witness_lock.signature,
                             witness_lock.signature_size, witness_lock.preimage,
-                            witness_lock.preimage_size);
+                            witness_lock.preimage_size, smh);
   CHECK(err);
+exit:
+  return err;
+}
+
+#ifdef CKB_USE_SIM
+int simulator_main() {
+#else
+int main() {
+#endif
+  int err = 0;
+  Env env;
+  err = ckb_env_initialize(&env);
+  CHECK(err);
+  ArgsType args = {0};
+  err = parse_args(env.current_script, &args);
+  CHECK(err);
+  env.script_specific_data = &args;
+
+  bool cobuild_activated = false;
+  err = ckb_cobuild_entry(&env, omnilock_entry, &cobuild_activated);
+  CHECK(err);
+  printf("cobuild_activated = %d", cobuild_activated);
+  if (!cobuild_activated) {
+    uint8_t witness_source[DEFAULT_DATA_SOURCE_LENGTH];
+    mol2_cursor_t lock = {0};
+    {
+      mol2_cursor_t witness_cursor;
+      err = ckb_new_witness_cursor(&witness_cursor, witness_source,
+                                   MAX_CACHE_SIZE, 0, CKB_SOURCE_GROUP_INPUT);
+      // when witness is missing, empty or not accessible, make it zero length.
+      // don't fail, because owner lock without omni doesn't require witness.
+      // when it's zero length, any further actions on witness will fail.
+      if (err == 0) {
+        if (witness_cursor.size > 0) {
+          WitnessArgsType witness_args = make_WitnessArgs(&witness_cursor);
+          CHECK2(!verify_WitnessArgs(&witness_args),
+                 ERROR_INVALID_WITNESS_FORMAT);
+
+          BytesOptType lock_opt = witness_args.t->lock(&witness_args);
+          if (lock_opt.t->is_some(&lock_opt)) {
+            lock = lock_opt.t->unwrap(&lock_opt);
+          }
+        }
+      }
+    }
+
+    uint8_t smh[BLAKE2B_BLOCK_SIZE] = {0};
+    if (lock.size > 0) {
+      err = generate_sighash_all(smh, BLAKE2B_BLOCK_SIZE);
+      CHECK(err);
+    }
+    err = omnilock_entry(&env, smh, lock);
+    CHECK(err);
+  }
 exit:
   return err;
 }

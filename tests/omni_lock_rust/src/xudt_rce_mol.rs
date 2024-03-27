@@ -200,12 +200,7 @@ impl<'r> molecule::prelude::Reader<'r> for ScriptVecReader<'r> {
             return Ok(());
         }
         if slice_len < molecule::NUMBER_SIZE * 2 {
-            return ve!(
-                Self,
-                TotalSizeNotMatch,
-                molecule::NUMBER_SIZE * 2,
-                slice_len
-            );
+            return ve!(Self, TotalSizeNotMatch, molecule::NUMBER_SIZE * 2, slice_len);
         }
         let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
         if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
@@ -252,25 +247,15 @@ impl molecule::prelude::Builder for ScriptVecBuilder {
     type Entity = ScriptVec;
     const NAME: &'static str = "ScriptVecBuilder";
     fn expected_length(&self) -> usize {
-        molecule::NUMBER_SIZE * (self.0.len() + 1)
-            + self
-                .0
-                .iter()
-                .map(|inner| inner.as_slice().len())
-                .sum::<usize>()
+        molecule::NUMBER_SIZE * (self.0.len() + 1) + self.0.iter().map(|inner| inner.as_slice().len()).sum::<usize>()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
         let item_count = self.0.len();
         if item_count == 0 {
-            writer.write_all(&molecule::pack_number(
-                molecule::NUMBER_SIZE as molecule::Number,
-            ))?;
+            writer.write_all(&molecule::pack_number(molecule::NUMBER_SIZE as molecule::Number))?;
         } else {
             let (total_size, offsets) = self.0.iter().fold(
-                (
-                    molecule::NUMBER_SIZE * (item_count + 1),
-                    Vec::with_capacity(item_count),
-                ),
+                (molecule::NUMBER_SIZE * (item_count + 1), Vec::with_capacity(item_count)),
                 |(start, mut offsets), inner| {
                     offsets.push(start);
                     (start + inner.as_slice().len(), offsets)
@@ -288,8 +273,7 @@ impl molecule::prelude::Builder for ScriptVecBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         ScriptVec::new_unchecked(inner.into())
     }
 }
@@ -487,21 +471,14 @@ impl molecule::prelude::Builder for ScriptVecOptBuilder {
     type Entity = ScriptVecOpt;
     const NAME: &'static str = "ScriptVecOptBuilder";
     fn expected_length(&self) -> usize {
-        self.0
-            .as_ref()
-            .map(|ref inner| inner.as_slice().len())
-            .unwrap_or(0)
+        self.0.as_ref().map(|ref inner| inner.as_slice().len()).unwrap_or(0)
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
-        self.0
-            .as_ref()
-            .map(|ref inner| writer.write_all(inner.as_slice()))
-            .unwrap_or(Ok(()))
+        self.0.as_ref().map(|ref inner| writer.write_all(inner.as_slice())).unwrap_or(Ok(()))
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         ScriptVecOpt::new_unchecked(inner.into())
     }
 }
@@ -599,9 +576,7 @@ impl molecule::prelude::Entity for XudtWitnessInput {
         ::core::default::Default::default()
     }
     fn as_builder(self) -> Self::Builder {
-        Self::new_builder()
-            .raw_extension_data(self.raw_extension_data())
-            .extension_data(self.extension_data())
+        Self::new_builder().raw_extension_data(self.raw_extension_data()).extension_data(self.extension_data())
     }
 }
 #[derive(Clone, Copy)]
@@ -762,8 +737,7 @@ impl molecule::prelude::Builder for XudtWitnessInputBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         XudtWitnessInput::new_unchecked(inner.into())
     }
 }
@@ -793,10 +767,8 @@ impl ::core::fmt::Display for RCRule {
 }
 impl ::core::default::Default for RCRule {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0,
-        ];
+        let v: Vec<u8> =
+            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         RCRule::new_unchecked(v.into())
     }
 }
@@ -836,9 +808,7 @@ impl molecule::prelude::Entity for RCRule {
         ::core::default::Default::default()
     }
     fn as_builder(self) -> Self::Builder {
-        Self::new_builder()
-            .smt_root(self.smt_root())
-            .flags(self.flags())
+        Self::new_builder().smt_root(self.smt_root()).flags(self.flags())
     }
 }
 #[derive(Clone, Copy)]
@@ -928,8 +898,7 @@ impl molecule::prelude::Builder for RCRuleBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         RCRule::new_unchecked(inner.into())
     }
 }
@@ -1145,8 +1114,7 @@ impl molecule::prelude::Builder for RCCellVecBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         RCCellVec::new_unchecked(inner.into())
     }
 }
@@ -1225,8 +1193,8 @@ impl ::core::fmt::Display for RCData {
 impl ::core::default::Default for RCData {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0,
         ];
         RCData::new_unchecked(v.into())
     }
@@ -1362,8 +1330,7 @@ impl molecule::prelude::Builder for RCDataBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         RCData::new_unchecked(inner.into())
     }
 }
@@ -1702,8 +1669,7 @@ impl molecule::prelude::Builder for SmtProofBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         SmtProof::new_unchecked(inner.into())
     }
 }
@@ -1967,9 +1933,7 @@ impl molecule::prelude::Builder for SmtProofEntryBuilder {
     type Entity = SmtProofEntry;
     const NAME: &'static str = "SmtProofEntryBuilder";
     fn expected_length(&self) -> usize {
-        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
-            + self.mask.as_slice().len()
-            + self.proof.as_slice().len()
+        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1) + self.mask.as_slice().len() + self.proof.as_slice().len()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
         let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
@@ -1988,8 +1952,7 @@ impl molecule::prelude::Builder for SmtProofEntryBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         SmtProofEntry::new_unchecked(inner.into())
     }
 }
@@ -2185,12 +2148,7 @@ impl<'r> molecule::prelude::Reader<'r> for SmtProofEntryVecReader<'r> {
             return Ok(());
         }
         if slice_len < molecule::NUMBER_SIZE * 2 {
-            return ve!(
-                Self,
-                TotalSizeNotMatch,
-                molecule::NUMBER_SIZE * 2,
-                slice_len
-            );
+            return ve!(Self, TotalSizeNotMatch, molecule::NUMBER_SIZE * 2, slice_len);
         }
         let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
         if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
@@ -2237,25 +2195,15 @@ impl molecule::prelude::Builder for SmtProofEntryVecBuilder {
     type Entity = SmtProofEntryVec;
     const NAME: &'static str = "SmtProofEntryVecBuilder";
     fn expected_length(&self) -> usize {
-        molecule::NUMBER_SIZE * (self.0.len() + 1)
-            + self
-                .0
-                .iter()
-                .map(|inner| inner.as_slice().len())
-                .sum::<usize>()
+        molecule::NUMBER_SIZE * (self.0.len() + 1) + self.0.iter().map(|inner| inner.as_slice().len()).sum::<usize>()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
         let item_count = self.0.len();
         if item_count == 0 {
-            writer.write_all(&molecule::pack_number(
-                molecule::NUMBER_SIZE as molecule::Number,
-            ))?;
+            writer.write_all(&molecule::pack_number(molecule::NUMBER_SIZE as molecule::Number))?;
         } else {
             let (total_size, offsets) = self.0.iter().fold(
-                (
-                    molecule::NUMBER_SIZE * (item_count + 1),
-                    Vec::with_capacity(item_count),
-                ),
+                (molecule::NUMBER_SIZE * (item_count + 1), Vec::with_capacity(item_count)),
                 |(start, mut offsets), inner| {
                     offsets.push(start);
                     (start + inner.as_slice().len(), offsets)
@@ -2273,8 +2221,7 @@ impl molecule::prelude::Builder for SmtProofEntryVecBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         SmtProofEntryVec::new_unchecked(inner.into())
     }
 }
@@ -2353,10 +2300,8 @@ impl ::core::fmt::Display for SmtUpdateItem {
 }
 impl ::core::default::Default for SmtUpdateItem {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0,
-        ];
+        let v: Vec<u8> =
+            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         SmtUpdateItem::new_unchecked(v.into())
     }
 }
@@ -2396,9 +2341,7 @@ impl molecule::prelude::Entity for SmtUpdateItem {
         ::core::default::Default::default()
     }
     fn as_builder(self) -> Self::Builder {
-        Self::new_builder()
-            .key(self.key())
-            .packed_values(self.packed_values())
+        Self::new_builder().key(self.key()).packed_values(self.packed_values())
     }
 }
 #[derive(Clone, Copy)]
@@ -2488,8 +2431,7 @@ impl molecule::prelude::Builder for SmtUpdateItemBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         SmtUpdateItem::new_unchecked(inner.into())
     }
 }
@@ -2705,8 +2647,7 @@ impl molecule::prelude::Builder for SmtUpdateItemVecBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         SmtUpdateItemVec::new_unchecked(inner.into())
     }
 }
@@ -2789,9 +2730,7 @@ impl ::core::fmt::Display for SmtUpdateAction {
 }
 impl ::core::default::Default for SmtUpdateAction {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            20, 0, 0, 0, 12, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
+        let v: Vec<u8> = vec![20, 0, 0, 0, 12, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         SmtUpdateAction::new_unchecked(v.into())
     }
 }
@@ -2855,9 +2794,7 @@ impl molecule::prelude::Entity for SmtUpdateAction {
         ::core::default::Default::default()
     }
     fn as_builder(self) -> Self::Builder {
-        Self::new_builder()
-            .updates(self.updates())
-            .proof(self.proof())
+        Self::new_builder().updates(self.updates()).proof(self.proof())
     }
 }
 #[derive(Clone, Copy)]
@@ -2997,9 +2934,7 @@ impl molecule::prelude::Builder for SmtUpdateActionBuilder {
     type Entity = SmtUpdateAction;
     const NAME: &'static str = "SmtUpdateActionBuilder";
     fn expected_length(&self) -> usize {
-        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
-            + self.updates.as_slice().len()
-            + self.proof.as_slice().len()
+        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1) + self.updates.as_slice().len() + self.proof.as_slice().len()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
         let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
@@ -3018,8 +2953,7 @@ impl molecule::prelude::Builder for SmtUpdateActionBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         SmtUpdateAction::new_unchecked(inner.into())
     }
 }
@@ -3053,9 +2987,7 @@ impl ::core::fmt::Display for XudtData {
 }
 impl ::core::default::Default for XudtData {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            20, 0, 0, 0, 12, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
-        ];
+        let v: Vec<u8> = vec![20, 0, 0, 0, 12, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0];
         XudtData::new_unchecked(v.into())
     }
 }
@@ -3259,9 +3191,7 @@ impl molecule::prelude::Builder for XudtDataBuilder {
     type Entity = XudtData;
     const NAME: &'static str = "XudtDataBuilder";
     fn expected_length(&self) -> usize {
-        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
-            + self.lock.as_slice().len()
-            + self.data.as_slice().len()
+        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1) + self.lock.as_slice().len() + self.data.as_slice().len()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
         let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
@@ -3280,8 +3210,7 @@ impl molecule::prelude::Builder for XudtDataBuilder {
     }
     fn build(&self) -> Self::Entity {
         let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner)
-            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        self.write(&mut inner).unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         XudtData::new_unchecked(inner.into())
     }
 }

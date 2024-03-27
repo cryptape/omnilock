@@ -1,3 +1,4 @@
+use omni_lock_test::schemas::top_level::WitnessLayout;
 use openssl::hash::MessageDigest;
 use openssl::pkey::{PKey, Private, Public};
 use openssl::rsa::Rsa;
@@ -6,26 +7,20 @@ use sha3::{Digest, Keccak256};
 use std::collections::HashMap;
 use std::convert::TryInto;
 
-use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_crypto::secp::{Generator, Privkey, Pubkey};
 use ckb_error::Error;
 use ckb_hash::{Blake2b, Blake2bBuilder};
 use ckb_script::TxVerifyEnv;
-use ckb_traits::{CellDataProvider, HeaderProvider};
+use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::bytes::{BufMut, BytesMut};
 use ckb_types::{
     bytes::Bytes,
     core::{
         cell::{CellMeta, CellMetaBuilder, ResolvedTransaction},
-        hardfork::HardForkSwitch,
-        Capacity, DepType, EpochNumberWithFraction, HeaderView, ScriptHashType, TransactionBuilder,
-        TransactionView,
+        Capacity, DepType, EpochNumberWithFraction, HeaderView, ScriptHashType, TransactionBuilder, TransactionView,
     },
     molecule,
-    packed::{
-        self, Byte32, CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs,
-        WitnessArgsBuilder,
-    },
+    packed::{self, Byte32, CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs, WitnessArgsBuilder},
     prelude::*,
     H256 as CkbH256,
 };
@@ -39,12 +34,17 @@ use sparse_merkle_tree::default_store::DefaultStore;
 use sparse_merkle_tree::traits::Hasher;
 use sparse_merkle_tree::{SparseMerkleTree, H256};
 
+use ckb_chain_spec::consensus::ConsensusBuilder;
+use ckb_script::TransactionScriptsVerifier;
+use ckb_types::core::hardfork::HardForks;
 use omni_lock_test::omni_lock;
 use omni_lock_test::omni_lock::OmniLockWitnessLock;
+use omni_lock_test::schemas::basic::{Message, SighashAll, SighashAllOnly};
 use omni_lock_test::xudt_rce_mol::{
-    RCCellVecBuilder, RCDataBuilder, RCDataUnion, RCRuleBuilder, SmtProofBuilder,
-    SmtProofEntryBuilder, SmtProofEntryVec, SmtProofEntryVecBuilder,
+    RCCellVecBuilder, RCDataBuilder, RCDataUnion, RCRuleBuilder, SmtProofBuilder, SmtProofEntryBuilder,
+    SmtProofEntryVec, SmtProofEntryVecBuilder,
 };
+use std::sync::Arc;
 
 // on(1): white list
 // off(0): black list
@@ -75,13 +75,22 @@ pub const ERROR_NO_WHITE_LIST: i8 = 83;
 pub const ERROR_ON_BLACK_LIST: i8 = 57;
 pub const ERROR_RCE_EMERGENCY_HALT: i8 = 54;
 pub const ERROR_RSA_VERIFY_FAILED: i8 = 42;
+pub const ERROR_INCORRECT_SINCE_FLAGS: i8 = -23;
 pub const ERROR_INCORRECT_SINCE_VALUE: i8 = -24;
 pub const ERROR_ISO97962_INVALID_ARG9: i8 = 61;
+pub const ERROR_MOL2_ERR_OVERFLOW: i8 = 8;
 // sudt supply errors
 pub const ERROR_EXCEED_SUPPLY: i8 = 90;
 pub const ERROR_SUPPLY_AMOUNT: i8 = 91;
 pub const ERROR_BURN: i8 = 92;
 pub const ERROR_NO_INFO_CELL: i8 = 93;
+// cobuild
+pub const ERROR_COBUILD_MOL2_ERR_DATA: i8 = 0x07;
+pub const ERROR_SIGHASHALL_DUP: i8 = 113;
+pub const MOL2_ERR_OVERFLOW: i8 = 8; // parse witnesses error
+
+pub const ERROR_IDENTITY_WRONG_ARGS: i8 = 71;
+pub const ERROR_ARGS_FORMAT: i8 = 87;
 
 // https://github.com/bitcoin-core/secp256k1/blob/d373bf6d08c82ac5496bf8103698c9f54d8d99d2/include/secp256k1.h#L219
 pub const SECP256K1_TAG_PUBKEY_EVEN: u8 = 0x02;
@@ -104,31 +113,20 @@ pub const COMMON_PREFIX: &str = "CKB transaction: 0x";
 
 lazy_static! {
     pub static ref OMNI_LOCK: Bytes = Bytes::from(&include_bytes!("../../../build/omni_lock")[..]);
-    pub static ref SIMPLE_UDT: Bytes =
-        Bytes::from(&include_bytes!("../../../build/simple_udt")[..]);
-    pub static ref SECP256K1_DATA_BIN: Bytes =
-        Bytes::from(&include_bytes!("../../../build/secp256k1_data_20210801")[..]);
-    pub static ref ALWAYS_SUCCESS: Bytes =
-        Bytes::from(&include_bytes!("../../../build/always_success")[..]);
+    pub static ref SIMPLE_UDT: Bytes = Bytes::from(&include_bytes!("../../../build/simple_udt")[..]);
+    pub static ref ALWAYS_SUCCESS: Bytes = Bytes::from(&include_bytes!("../../../build/always_success")[..]);
     pub static ref VALIDATE_SIGNATURE_RSA: Bytes =
         Bytes::from(&include_bytes!("../../../build/validate_signature_rsa")[..]);
-    pub static ref SMT_EXISTING: H256 = H256::from([
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0
-    ]);
-    pub static ref SMT_NOT_EXISTING: H256 = H256::from([
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0
-    ]);
+    pub static ref SMT_EXISTING: H256 =
+        H256::from([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    pub static ref SMT_NOT_EXISTING: H256 =
+        H256::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 }
 pub struct CKBBlake2bHasher(Blake2b);
 
 impl Default for CKBBlake2bHasher {
     fn default() -> Self {
-        let blake2b = Blake2bBuilder::new(BLAKE2B_LEN)
-            .personal(PERSONALIZATION)
-            .key(BLAKE2B_KEY)
-            .build();
+        let blake2b = Blake2bBuilder::new(BLAKE2B_LEN).personal(PERSONALIZATION).key(BLAKE2B_KEY).build();
         CKBBlake2bHasher(blake2b)
     }
 }
@@ -194,11 +192,7 @@ fn build_script(
     let type_script_in_code = {
         if in_input_cell {
             let hash: Bytes = Bytes::copy_from_slice(&hash);
-            always_success
-                .clone()
-                .as_builder()
-                .args(hash.pack())
-                .build()
+            always_success.clone().as_builder().args(hash.pack()).build()
         } else {
             // this args can be anything
             let args = vec![0u8; 32];
@@ -225,73 +219,38 @@ fn build_script(
 
     let tx_builder = if in_input_cell {
         let witness_args = WitnessArgsBuilder::default().build();
-        tx_builder
-            .input(CellInput::new(out_point.clone(), 0))
-            .witness(witness_args.as_bytes().pack())
+        tx_builder.input(CellInput::new(out_point.clone(), 0)).witness(witness_args.as_bytes().pack())
     } else {
-        tx_builder.cell_dep(
-            CellDep::new_builder()
-                .out_point(out_point.clone())
-                .dep_type(DepType::Code.into())
-                .build(),
-        )
+        tx_builder.cell_dep(CellDep::new_builder().out_point(out_point.clone()).dep_type(DepType::Code.into()).build())
     };
 
-    let code_hash = if is_type {
-        ckb_hash::blake2b_256(type_script_in_code.as_slice())
-    } else {
-        ckb_hash::blake2b_256(bin)
-    };
-    let hash_type = if is_type {
-        ScriptHashType::Type
-    } else {
-        ScriptHashType::Data
-    };
+    let code_hash =
+        if is_type { ckb_hash::blake2b_256(type_script_in_code.as_slice()) } else { ckb_hash::blake2b_256(bin) };
+    let hash_type = if is_type { ScriptHashType::Type } else { ScriptHashType::Data1 };
 
-    let script = Script::new_builder()
-        .args(args.pack())
-        .code_hash(code_hash.pack())
-        .hash_type(hash_type.into())
-        .build();
+    let script =
+        Script::new_builder().args(args.pack()).code_hash(code_hash.pack()).hash_type(hash_type.into()).build();
 
     (tx_builder, script)
 }
 
 // return smt root and proof
 fn build_smt_on_bl(hashes: &Vec<[u8; 32]>, on: bool) -> (H256, Vec<u8>) {
-    let test_pairs: Vec<(H256, H256)> = hashes
-        .clone()
-        .into_iter()
-        .map(|hash| (hash.into(), SMT_NOT_EXISTING.clone()))
-        .collect();
+    let test_pairs: Vec<(H256, H256)> =
+        hashes.clone().into_iter().map(|hash| (hash.into(), SMT_NOT_EXISTING.clone())).collect();
     // this is the hash on black list, but "hashes" are not on that.
-    let key_on_bl1: H256 = [
-        111, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0,
-    ]
-    .into();
-    let key_on_bl2: H256 = [
-        222, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0,
-    ]
-    .into();
-    let pairs = vec![
-        (key_on_bl1, SMT_EXISTING.clone()),
-        (key_on_bl2, SMT_EXISTING.clone()),
-    ];
+    let key_on_bl1: H256 =
+        [111, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].into();
+    let key_on_bl2: H256 =
+        [222, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].into();
+    let pairs = vec![(key_on_bl1, SMT_EXISTING.clone()), (key_on_bl2, SMT_EXISTING.clone())];
     let smt = new_smt(pairs.clone());
     let root = smt.root();
 
-    let proof = smt
-        .merkle_proof(test_pairs.clone().into_iter().map(|(k, _)| k).collect())
-        .expect("gen proof");
-    let compiled_proof = proof
-        .clone()
-        .compile(test_pairs.clone())
-        .expect("compile proof");
-    let test_on = compiled_proof
-        .verify::<CKBBlake2bHasher>(smt.root(), test_pairs.clone())
-        .expect("verify compiled proof");
+    let proof = smt.merkle_proof(test_pairs.clone().into_iter().map(|(k, _)| k).collect()).expect("gen proof");
+    let compiled_proof = proof.clone().compile(test_pairs.clone()).expect("compile proof");
+    let test_on =
+        compiled_proof.verify::<CKBBlake2bHasher>(smt.root(), test_pairs.clone()).expect("verify compiled proof");
     assert!(test_on);
     if on {
         let mut new_root = root.clone();
@@ -309,27 +268,15 @@ fn build_smt_on_bl(hashes: &Vec<[u8; 32]>, on: bool) -> (H256, Vec<u8>) {
 
 // return smt root and proof
 fn build_smt_on_wl(hashes: &Vec<[u8; 32]>, on: bool) -> (H256, Vec<u8>) {
-    let existing_pairs: Vec<(H256, H256)> = hashes
-        .clone()
-        .into_iter()
-        .map(|hash| (hash.into(), SMT_EXISTING.clone()))
-        .collect();
+    let existing_pairs: Vec<(H256, H256)> =
+        hashes.clone().into_iter().map(|hash| (hash.into(), SMT_EXISTING.clone())).collect();
 
     // this is the hash on white list, and "hashes" are on that.
-    let key_on_wl1: H256 = [
-        111, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0,
-    ]
-    .into();
-    let key_on_wl2: H256 = [
-        222, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0,
-    ]
-    .into();
-    let mut pairs = vec![
-        (key_on_wl1, SMT_EXISTING.clone()),
-        (key_on_wl2, SMT_EXISTING.clone()),
-    ];
+    let key_on_wl1: H256 =
+        [111, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].into();
+    let key_on_wl2: H256 =
+        [222, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].into();
+    let mut pairs = vec![(key_on_wl1, SMT_EXISTING.clone()), (key_on_wl2, SMT_EXISTING.clone())];
     if on {
         pairs.extend(existing_pairs.clone());
     }
@@ -337,16 +284,10 @@ fn build_smt_on_wl(hashes: &Vec<[u8; 32]>, on: bool) -> (H256, Vec<u8>) {
     let smt = new_smt(pairs);
     let root = smt.root();
 
-    let proof = smt
-        .merkle_proof(existing_pairs.clone().into_iter().map(|(k, _)| k).collect())
-        .expect("gen proof");
-    let compiled_proof = proof
-        .clone()
-        .compile(existing_pairs.clone())
-        .expect("compile proof");
-    let test_on = compiled_proof
-        .verify::<CKBBlake2bHasher>(root, existing_pairs.clone())
-        .expect("verify compiled proof");
+    let proof = smt.merkle_proof(existing_pairs.clone().into_iter().map(|(k, _)| k).collect()).expect("gen proof");
+    let compiled_proof = proof.clone().compile(existing_pairs.clone()).expect("compile proof");
+    let test_on =
+        compiled_proof.verify::<CKBBlake2bHasher>(root, existing_pairs.clone()).expect("verify compiled proof");
     if on {
         assert!(test_on);
     } else {
@@ -364,17 +305,12 @@ fn build_rc_rule(smt_root: &[u8; 32], is_black: bool, is_emergency: bool) -> Byt
     if is_emergency {
         flags ^= EMERGENCY_HALT_MODE_MASK;
     }
-    let rcrule = RCRuleBuilder::default()
-        .flags(flags.into())
-        .smt_root(smt_root.pack())
-        .build();
-    let res = RCDataBuilder::default()
-        .set(RCDataUnion::RCRule(rcrule))
-        .build();
+    let rcrule = RCRuleBuilder::default().flags(flags.into()).smt_root(smt_root.pack()).build();
+    let res = RCDataBuilder::default().set(RCDataUnion::RCRule(rcrule)).build();
     res.as_bytes()
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DummyDataLoader {
     pub cells: HashMap<OutPoint, (CellOutput, ckb_types::bytes::Bytes)>,
 }
@@ -388,16 +324,11 @@ impl DummyDataLoader {
 impl CellDataProvider for DummyDataLoader {
     // load Cell Data
     fn load_cell_data(&self, cell: &CellMeta) -> Option<ckb_types::bytes::Bytes> {
-        cell.mem_cell_data.clone().or_else(|| {
-            self.cells
-                .get(&cell.out_point)
-                .map(|(_, data)| data.clone())
-        })
+        cell.mem_cell_data.clone().or_else(|| self.cells.get(&cell.out_point).map(|(_, data)| data.clone()))
     }
 
     fn load_cell_data_hash(&self, cell: &CellMeta) -> Option<Byte32> {
-        self.load_cell_data(cell)
-            .map(|e| CellOutput::calc_data_hash(&e))
+        self.load_cell_data(cell).map(|e| CellOutput::calc_data_hash(&e))
     }
 
     fn get_cell_data(&self, _out_point: &OutPoint) -> Option<ckb_types::bytes::Bytes> {
@@ -411,6 +342,12 @@ impl CellDataProvider for DummyDataLoader {
 
 impl HeaderProvider for DummyDataLoader {
     fn get_header(&self, _hash: &Byte32) -> Option<HeaderView> {
+        None
+    }
+}
+
+impl ExtensionProvider for DummyDataLoader {
+    fn get_block_extension(&self, _hash: &packed::Byte32) -> Option<packed::Bytes> {
         None
     }
 }
@@ -436,19 +373,12 @@ pub fn convert_keccak256_hash(message: &[u8]) -> CkbH256 {
     CkbH256::from_slice(r.as_slice()).expect("convert_keccak256_hash")
 }
 
-pub fn sign_tx(
-    dummy: &mut DummyDataLoader,
-    tx: TransactionView,
-    config: &mut TestConfig,
-) -> TransactionView {
+pub fn sign_tx(dummy: &mut DummyDataLoader, tx: TransactionView, config: &mut TestConfig) -> TransactionView {
     // for owner lock, the first input is an "always success" script: used as owner lock
     let (begin_index, witnesses_len) = if config.is_owner_lock() {
         (1, tx.witnesses().len() - 1)
     } else {
-        (
-            config.leading_witness_count,
-            tx.witnesses().len() - config.leading_witness_count,
-        )
+        (config.leading_witness_count, tx.witnesses().len() - config.leading_witness_count)
     };
     sign_tx_by_input_group(dummy, tx, begin_index, witnesses_len, config)
 }
@@ -459,15 +389,10 @@ fn build_proofs(proofs: Vec<Vec<u8>>, proof_masks: Vec<u8>) -> SmtProofEntryVec 
     let mut builder = SmtProofEntryVecBuilder::default();
     let iter = proofs.iter().zip(proof_masks.iter());
     for (p, m) in iter {
-        let proof_builder = SmtProofBuilder::default().set(
-            p.into_iter()
-                .map(|v| molecule::prelude::Byte::new(*v))
-                .collect(),
-        );
+        let proof_builder =
+            SmtProofBuilder::default().set(p.into_iter().map(|v| molecule::prelude::Byte::new(*v)).collect());
 
-        let temp = SmtProofEntryBuilder::default()
-            .proof(proof_builder.build())
-            .mask((*m).into());
+        let temp = SmtProofEntryBuilder::default().proof(proof_builder.build()).mask((*m).into());
         builder = builder.push(temp.build());
     }
     builder.build()
@@ -475,10 +400,7 @@ fn build_proofs(proofs: Vec<Vec<u8>>, proof_masks: Vec<u8>) -> SmtProofEntryVec 
 
 pub fn build_always_success_script() -> Script {
     let data_hash = CellOutput::calc_data_hash(&ALWAYS_SUCCESS);
-    Script::new_builder()
-        .code_hash(data_hash.clone())
-        .hash_type(ScriptHashType::Data.into())
-        .build()
+    Script::new_builder().code_hash(data_hash.clone()).hash_type(ScriptHashType::Data1.into()).build()
 }
 
 pub fn build_omni_lock_script(config: &mut TestConfig, args: Bytes) -> Script {
@@ -504,7 +426,7 @@ pub fn build_omni_lock_script(config: &mut TestConfig, args: Bytes) -> Script {
     Script::new_builder()
         .args(args.pack())
         .code_hash(sighash_all_cell_data_hash.clone())
-        .hash_type(ScriptHashType::Data.into())
+        .hash_type(ScriptHashType::Data1.into())
         .build()
 }
 
@@ -545,7 +467,7 @@ pub fn append_input_lock_script_hash(
     let script = Script::new_builder()
         .args(Default::default())
         .code_hash(hash.clone())
-        .hash_type(ScriptHashType::Data.into())
+        .hash_type(ScriptHashType::Data1.into())
         .build();
     let blake160 = {
         let hash = script.calc_script_hash();
@@ -554,17 +476,9 @@ pub fn append_input_lock_script_hash(
         res.freeze()
     };
 
-    let previous_output_cell = CellOutput::new_builder()
-        .capacity(Capacity::shannons(42).pack())
-        .lock(script)
-        .build();
-    dummy.cells.insert(
-        previous_out_point.clone(),
-        (previous_output_cell.clone(), Bytes::new()),
-    );
-    let tx_builder = tx_builder
-        .input(CellInput::new(previous_out_point, 0))
-        .witness(Default::default());
+    let previous_output_cell = CellOutput::new_builder().capacity(Capacity::shannons(42).pack()).lock(script).build();
+    dummy.cells.insert(previous_out_point.clone(), (previous_output_cell.clone(), Bytes::new()));
+    let tx_builder = tx_builder.input(CellInput::new(previous_out_point, 0)).witness(Default::default());
 
     (tx_builder, blake160)
 }
@@ -585,10 +499,7 @@ pub fn write_back_preimage_hash(dummy: &mut DummyDataLoader, flags: u8, hash: By
                 if raw[0] == flags {
                     let mut new_args = Vec::from(raw.as_ref());
                     new_args[1..21].copy_from_slice(hash.as_ref());
-                    let new_script = script
-                        .as_builder()
-                        .args(Bytes::from(new_args).pack())
-                        .build();
+                    let new_script = script.as_builder().args(Bytes::from(new_args).pack()).build();
                     cell = cell.as_builder().lock(new_script).build();
                 }
             }
@@ -609,57 +520,50 @@ pub fn sign_tx_by_input_group(
     let tx_hash = tx.hash();
     let mut preimage_hash: Bytes = Default::default();
 
+    let message = if config.cobuild_enabled {
+        cobuild_generate_signing_message_hash(&config.cobuild_message, dummy, &tx)
+    } else {
+        let mut blake2b = ckb_hash::new_blake2b();
+        let mut message = [0u8; 32];
+        blake2b.update(&tx_hash.raw_data());
+        // digest the first witness
+        let witness = WitnessArgs::new_unchecked(tx.witnesses().get(begin_index).unwrap().unpack());
+        let zero_lock = gen_zero_witness_lock(
+            config.use_rc,
+            config.use_rc_identity,
+            &proof_vec,
+            &identity,
+            config.sig_len,
+            config.preimage_len,
+        );
+
+        let witness_for_digest = witness.clone().as_builder().lock(Some(zero_lock).pack()).build();
+        let witness_len = witness_for_digest.as_bytes().len() as u64;
+        blake2b.update(&witness_len.to_le_bytes());
+        blake2b.update(&witness_for_digest.as_bytes());
+        ((begin_index + 1)..(begin_index + len)).for_each(|n| {
+            let witness = tx.witnesses().get(n).unwrap();
+            let witness_len = witness.raw_data().len() as u64;
+            blake2b.update(&witness_len.to_le_bytes());
+            blake2b.update(&witness.raw_data());
+        });
+        blake2b.finalize(&mut message);
+        message
+    };
+    println!("origin message: {:02x?}", message);
     let mut signed_witnesses: Vec<packed::Bytes> = tx
         .inputs()
         .into_iter()
         .enumerate()
         .map(|(i, _)| {
             if i == begin_index {
-                let mut blake2b = ckb_hash::new_blake2b();
-                let mut message = [0u8; 32];
-                blake2b.update(&tx_hash.raw_data());
-                // digest the first witness
-                let witness = WitnessArgs::new_unchecked(tx.witnesses().get(i).unwrap().unpack());
-                let zero_lock = gen_zero_witness_lock(
-                    config.use_rc,
-                    config.use_rc_identity,
-                    &proof_vec,
-                    &identity,
-                    config.sig_len,
-                    config.preimage_len,
-                );
-
-                let witness_for_digest = witness
-                    .clone()
-                    .as_builder()
-                    .lock(Some(zero_lock).pack())
-                    .build();
-                let witness_len = witness_for_digest.as_bytes().len() as u64;
-                blake2b.update(&witness_len.to_le_bytes());
-                blake2b.update(&witness_for_digest.as_bytes());
-                ((i + 1)..(i + len)).for_each(|n| {
-                    let witness = tx.witnesses().get(n).unwrap();
-                    let witness_len = witness.raw_data().len() as u64;
-                    blake2b.update(&witness_len.to_le_bytes());
-                    blake2b.update(&witness.raw_data());
-                });
-                blake2b.finalize(&mut message);
-
-                println!("origin message: {:02x?}", message);
-
                 let message = if use_chain_confg(config.id.flags) {
                     assert!(config.chain_config.is_some());
-                    config
-                        .chain_config
-                        .as_ref()
-                        .unwrap()
-                        .convert_message(&message)
+                    config.chain_config.as_ref().unwrap().convert_message(&message)
                 } else {
                     CkbH256::from(message)
                 };
-
                 println!("sign message: {:02x?}", message.as_bytes().to_vec());
-
                 let witness_lock = if config.id.flags == IDENTITY_FLAGS_DL {
                     let (mut sig, pubkey) = if config.use_rsa {
                         rsa_sign(message.as_bytes(), &config.rsa_private_key)
@@ -691,58 +595,57 @@ pub fn sign_tx_by_input_group(
                     )
                 } else if config.id.flags == IDENTITY_FLAGS_MULTISIG {
                     let sig = config.multisig.sign(&message.into());
-                    gen_witness_lock(
-                        sig,
-                        config.use_rc,
-                        config.use_rc_identity,
-                        &proof_vec,
-                        &identity,
-                        None,
-                    )
+                    gen_witness_lock(sig, config.use_rc, config.use_rc_identity, &proof_vec, &identity, None)
                 } else if use_chain_confg(config.id.flags) {
-                    let sig_bytes = config
-                        .chain_config
-                        .as_ref()
-                        .unwrap()
-                        .sign(&config.private_key, message);
-                    println!(
-                        "bitcoin sign(size: {}): {:02x?}",
-                        sig_bytes.len(),
-                        sig_bytes.to_vec()
-                    );
-                    gen_witness_lock(
-                        sig_bytes,
-                        config.use_rc,
-                        config.use_rc_identity,
-                        &proof_vec,
-                        &identity,
-                        None,
-                    )
+                    let sig_bytes = config.chain_config.as_ref().unwrap().sign(&config.private_key, message);
+                    println!("bitcoin sign(size: {}): {:02x?}", sig_bytes.len(), sig_bytes.to_vec());
+                    gen_witness_lock(sig_bytes, config.use_rc, config.use_rc_identity, &proof_vec, &identity, None)
                 } else {
                     let sig = config.private_key.sign_recoverable(&message).expect("sign");
                     let sig_bytes = Bytes::from(sig.serialize());
-                    gen_witness_lock(
-                        sig_bytes,
-                        config.use_rc,
-                        config.use_rc_identity,
-                        &proof_vec,
-                        &identity,
-                        None,
-                    )
+                    gen_witness_lock(sig_bytes, config.use_rc, config.use_rc_identity, &proof_vec, &identity, None)
                 };
 
-                println!(
-                    "omni lock witness(size: {}): {:02x?}",
-                    witness_lock.len(),
-                    witness_lock.to_vec()
-                );
+                println!("omni lock witness(size: {}): {:02x?}", witness_lock.len(), witness_lock.to_vec());
 
-                witness
-                    .as_builder()
-                    .lock(Some(witness_lock).pack())
-                    .build()
-                    .as_bytes()
-                    .pack()
+                if config.cobuild_enabled {
+                    match &config.cobuild_message {
+                        Some(msg) => {
+                            let sighash_all = SighashAll::new_builder()
+                                .message(msg.clone())
+                                .seal([Bytes::copy_from_slice(&[0x00u8]), witness_lock].concat().pack())
+                                .build();
+                            let sighash_all = WitnessLayout::new_builder().set(sighash_all).build();
+                            let sighash_all = sighash_all.as_bytes();
+                            println!(
+                                "sighash_all with enum id(size: {}): {:02x?}",
+                                sighash_all.len(),
+                                sighash_all.as_ref()
+                            );
+                            let res = sighash_all.pack();
+                            println!("res(size: {}): {:02x?}", res.len(), res.as_bytes().as_ref());
+                            res
+                        }
+                        None => {
+                            let sighash_all_only = SighashAllOnly::new_builder()
+                                .seal([Bytes::copy_from_slice(&[0x00u8]), witness_lock].concat().pack())
+                                .build();
+                            let sighash_all_only = WitnessLayout::new_builder().set(sighash_all_only).build();
+                            let sighash_all_only = sighash_all_only.as_bytes();
+                            println!(
+                                "sighash_all_only with enum id(size: {}): {:02x?}",
+                                sighash_all_only.len(),
+                                sighash_all_only.as_ref()
+                            );
+                            let res = sighash_all_only.pack();
+                            println!("res(size: {}): {:02x?}", res.len(), res.as_bytes().as_ref());
+                            res
+                        }
+                    }
+                } else {
+                    let witness = WitnessArgs::new_unchecked(tx.witnesses().get(begin_index).unwrap().unpack());
+                    witness.as_builder().lock(Some(witness_lock).pack()).build().as_bytes().pack()
+                }
             } else {
                 tx.witnesses().get(i).unwrap_or_default()
             }
@@ -751,25 +654,26 @@ pub fn sign_tx_by_input_group(
     for i in signed_witnesses.len()..tx.witnesses().len() {
         signed_witnesses.push(tx.witnesses().get(i).unwrap());
     }
-    if config.scheme2 == TestScheme2::NoWitness {
-        signed_witnesses.clear();
-    }
     if preimage_hash.len() == 20 {
         write_back_preimage_hash(dummy, IDENTITY_FLAGS_DL, preimage_hash);
     }
+
+    match &config.custom_extension_witnesses_beginning {
+        Some(ws) => {
+            let mut ws: Vec<ckb_types::packed::Bytes> = ws.iter().map(|f| f.pack()).collect();
+            ws.extend_from_slice(&signed_witnesses);
+            signed_witnesses = ws;
+        }
+        _ => {}
+    }
+
     // calculate message
-    tx.as_advanced_builder()
-        .set_witnesses(signed_witnesses)
-        .build()
+    tx.as_advanced_builder().set_witnesses(signed_witnesses).build()
 }
 
 pub fn gen_tx(dummy: &mut DummyDataLoader, config: &mut TestConfig) -> TransactionView {
     let lock_args = config.gen_args();
-    println!(
-        "omni lock args(size: {}): {:02x?}",
-        lock_args.len(),
-        lock_args.to_vec()
-    );
+    println!("omni lock args(size: {}): {:02x?}", lock_args.len(), lock_args.to_vec());
     gen_tx_with_grouped_args(dummy, vec![(lock_args, 1)], config)
 }
 
@@ -789,18 +693,10 @@ pub fn gen_tx_with_grouped_args(
         OutPoint::new(contract_tx_hash.clone(), 0)
     };
     // dep contract code
-    let sighash_all_cell = CellOutput::new_builder()
-        .capacity(
-            Capacity::bytes(OMNI_LOCK.len())
-                .expect("script capacity")
-                .pack(),
-        )
-        .build();
+    let sighash_all_cell =
+        CellOutput::new_builder().capacity(Capacity::bytes(OMNI_LOCK.len()).expect("script capacity").pack()).build();
     let sighash_all_cell_data_hash = CellOutput::calc_data_hash(&OMNI_LOCK);
-    dummy.cells.insert(
-        sighash_all_out_point.clone(),
-        (sighash_all_cell, OMNI_LOCK.clone()),
-    );
+    dummy.cells.insert(sighash_all_out_point.clone(), (sighash_all_cell, OMNI_LOCK.clone()));
     // always success
     let always_success_out_point = {
         let contract_tx_hash = {
@@ -811,73 +707,19 @@ pub fn gen_tx_with_grouped_args(
         OutPoint::new(contract_tx_hash.clone(), 0)
     };
     let always_success_cell = CellOutput::new_builder()
-        .capacity(
-            Capacity::bytes(ALWAYS_SUCCESS.len())
-                .expect("script capacity")
-                .pack(),
-        )
+        .capacity(Capacity::bytes(ALWAYS_SUCCESS.len()).expect("script capacity").pack())
         .build();
-    dummy.cells.insert(
-        always_success_out_point.clone(),
-        (always_success_cell, ALWAYS_SUCCESS.clone()),
-    );
-    // setup secp256k1_data dep
-    let secp256k1_data_out_point = {
-        let tx_hash = {
-            let mut buf = [0u8; 32];
-            rng.fill(&mut buf);
-            buf.pack()
-        };
-        OutPoint::new(tx_hash, 0)
-    };
-    let secp256k1_data_cell = CellOutput::new_builder()
-        .capacity(
-            Capacity::bytes(SECP256K1_DATA_BIN.len())
-                .expect("data capacity")
-                .pack(),
-        )
-        .build();
-    dummy.cells.insert(
-        secp256k1_data_out_point.clone(),
-        (secp256k1_data_cell, SECP256K1_DATA_BIN.clone()),
-    );
+    dummy.cells.insert(always_success_out_point.clone(), (always_success_cell, ALWAYS_SUCCESS.clone()));
     // setup default tx builder
     let dummy_capacity = Capacity::shannons(42);
     let mut tx_builder = TransactionBuilder::default()
-        .cell_dep(
-            CellDep::new_builder()
-                .out_point(sighash_all_out_point)
-                .dep_type(DepType::Code.into())
-                .build(),
-        )
-        .cell_dep(
-            CellDep::new_builder()
-                .out_point(always_success_out_point)
-                .dep_type(DepType::Code.into())
-                .build(),
-        )
-        .cell_dep(
-            CellDep::new_builder()
-                .out_point(secp256k1_data_out_point)
-                .dep_type(DepType::Code.into())
-                .build(),
-        )
-        .output(
-            CellOutput::new_builder()
-                .capacity(dummy_capacity.pack())
-                .build(),
-        )
+        .cell_dep(CellDep::new_builder().out_point(sighash_all_out_point).dep_type(DepType::Code.into()).build())
+        .cell_dep(CellDep::new_builder().out_point(always_success_out_point).dep_type(DepType::Code.into()).build())
+        .output(CellOutput::new_builder().capacity(dummy_capacity.pack()).build())
         .output_data(Bytes::new().pack());
 
     // validate_signature_rsa will be referenced by preimage in witness
-    let (b0, rsa_script) = build_script(
-        dummy,
-        tx_builder,
-        false,
-        false,
-        &VALIDATE_SIGNATURE_RSA,
-        Default::default(),
-    );
+    let (b0, rsa_script) = build_script(dummy, tx_builder, false, false, &VALIDATE_SIGNATURE_RSA, Default::default());
     tx_builder = b0;
     config.rsa_script = rsa_script;
 
@@ -921,40 +763,33 @@ pub fn gen_tx_with_grouped_args(
             let script = Script::new_builder()
                 .args(args.pack())
                 .code_hash(sighash_all_cell_data_hash.clone())
-                .hash_type(ScriptHashType::Data.into())
+                .hash_type(ScriptHashType::Data1.into())
                 .build();
             config.running_script = script.clone();
-            let previous_output_cell = CellOutput::new_builder()
-                .capacity(dummy_capacity.pack())
-                .lock(script)
-                .build();
-            dummy.cells.insert(
-                previous_out_point.clone(),
-                (previous_output_cell.clone(), Bytes::new()),
-            );
+            let previous_output_cell = CellOutput::new_builder().capacity(dummy_capacity.pack()).lock(script).build();
+            dummy.cells.insert(previous_out_point.clone(), (previous_output_cell.clone(), Bytes::new()));
             let mut random_extra_witness = Vec::<u8>::new();
-            let witness_len = if config.scheme == TestScheme::LongWitness {
-                40000
-            } else {
-                32
-            };
+            let witness_len = if config.scheme == TestScheme::LongWitness { 40000 } else { 32 };
             random_extra_witness.resize(witness_len, 0);
             rng.fill(&mut random_extra_witness[..]);
 
             let witness_args = WitnessArgsBuilder::default()
                 .input_type(Some(Bytes::copy_from_slice(&random_extra_witness[..])).pack())
                 .build();
-            let since = if config.use_since {
-                config.input_since
-            } else {
-                0
-            };
-            tx_builder = tx_builder
-                .input(CellInput::new(previous_out_point, since))
-                .witness(witness_args.as_bytes().pack());
+            let since = if config.use_since { config.input_since } else { 0 };
+            tx_builder =
+                tx_builder.input(CellInput::new(previous_out_point, since)).witness(witness_args.as_bytes().pack());
         }
     }
 
+    match &config.custom_extension_witnesses {
+        Some(ws) => {
+            for w in ws {
+                tx_builder = tx_builder.witness(w.pack());
+            }
+        }
+        _ => {}
+    };
     tx_builder.build()
 }
 
@@ -976,25 +811,17 @@ pub fn sign_tx_hash(tx: TransactionView, tx_hash: &[u8], config: &TestConfig) ->
         &identity,
         Default::default(),
     );
-    let witness_args = WitnessArgsBuilder::default()
-        .lock(Some(witness_lock).pack())
-        .build();
-    tx.as_advanced_builder()
-        .set_witnesses(vec![witness_args.as_bytes().pack()])
-        .build()
+    let witness_args = WitnessArgsBuilder::default().lock(Some(witness_lock).pack()).build();
+    tx.as_advanced_builder().set_witnesses(vec![witness_args.as_bytes().pack()]).build()
 }
 
-pub fn build_resolved_tx(
-    data_loader: &DummyDataLoader,
-    tx: &TransactionView,
-) -> ResolvedTransaction {
+pub fn build_resolved_tx(data_loader: &DummyDataLoader, tx: &TransactionView) -> ResolvedTransaction {
     let resolved_cell_deps = tx
         .cell_deps()
         .into_iter()
         .map(|dep| {
             let deps_out_point = dep.clone();
-            let (dep_output, dep_data) =
-                data_loader.cells.get(&deps_out_point.out_point()).unwrap();
+            let (dep_output, dep_data) = data_loader.cells.get(&deps_out_point.out_point()).unwrap();
             CellMetaBuilder::from_cell_output(dep_output.to_owned(), dep_data.to_owned())
                 .out_point(deps_out_point.out_point().clone())
                 .build()
@@ -1012,20 +839,12 @@ pub fn build_resolved_tx(
         );
     }
 
-    ResolvedTransaction {
-        transaction: tx.clone(),
-        resolved_cell_deps,
-        resolved_inputs,
-        resolved_dep_groups: vec![],
-    }
+    ResolvedTransaction { transaction: tx.clone(), resolved_cell_deps, resolved_inputs, resolved_dep_groups: vec![] }
 }
 
 pub fn debug_printer(script: &Byte32, msg: &str) {
     let slice = script.as_slice();
-    let str = format!(
-        "Script({:x}{:x}{:x}{:x}{:x})",
-        slice[0], slice[1], slice[2], slice[3], slice[4]
-    );
+    let str = format!("Script({:x}{:x}{:x}{:x}{:x})", slice[0], slice[1], slice[2], slice[3], slice[4]);
     println!("{:?}: {}", str, msg);
 }
 
@@ -1132,10 +951,7 @@ impl MultisigTestConfig {
 
     pub fn gen_identity(&self) -> Identity {
         let script = self.gen_multisig_script();
-        Identity {
-            flags: IDENTITY_FLAGS_MULTISIG,
-            blake160: blake160(&script),
-        }
+        Identity { flags: IDENTITY_FLAGS_MULTISIG, blake160: blake160(&script) }
     }
 }
 
@@ -1201,10 +1017,7 @@ impl ChainConfig for EthereumDisplayConfig {
 
         let mut hasher = Keccak256::new();
         hasher.update(eth_prefix);
-        hasher.update(Bytes::from(format!(
-            "{}",
-            COMMON_PREFIX.len() + message.len() * 2
-        )));
+        hasher.update(Bytes::from(format!("{}", COMMON_PREFIX.len() + message.len() * 2)));
         hasher.update(Bytes::from(COMMON_PREFIX));
         hasher.update(hex::encode(message));
         let r = hasher.finalize();
@@ -1224,10 +1037,7 @@ pub struct BitcoinConfig {
 
 impl Default for BitcoinConfig {
     fn default() -> Self {
-        Self {
-            sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED,
-            pubkey_err: false,
-        }
+        Self { sign_vtype: BITCOIN_V_TYPE_P2PKHCOMPRESSED, pubkey_err: false }
     }
 }
 
@@ -1280,11 +1090,7 @@ impl ChainConfig for BitcoinConfig {
 
         temp2.put_u8(0x40 + BTC_PREFIX.len() as u8);
 
-        temp2.put(Bytes::from(format!(
-            "{}{}",
-            BTC_PREFIX,
-            hex::encode(message)
-        )));
+        temp2.put(Bytes::from(format!("{}{}", BTC_PREFIX, hex::encode(message))));
 
         let msg = calculate_sha256(&temp2.to_vec());
         let msg = calculate_sha256(&msg);
@@ -1293,10 +1099,7 @@ impl ChainConfig for BitcoinConfig {
     }
 
     fn sign(&self, privkey: &Privkey, message: CkbH256) -> Bytes {
-        let sign = privkey
-            .sign_recoverable(&message)
-            .expect("sign secp256k1")
-            .serialize();
+        let sign = privkey.sign_recoverable(&message).expect("sign secp256k1").serialize();
         let recid = sign[64];
 
         let mark = recid + self.sign_vtype;
@@ -1450,6 +1253,10 @@ pub struct TestConfig {
     pub leading_witness_count: usize,
 
     pub chain_config: Option<Box<dyn ChainConfig>>,
+    pub cobuild_enabled: bool,
+    pub cobuild_message: Option<Message>,
+    pub custom_extension_witnesses: Option<Vec<Bytes>>,
+    pub custom_extension_witnesses_beginning: Option<Vec<Bytes>>,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -1490,11 +1297,7 @@ impl TestConfig {
         let pubkey = private_key.pubkey().expect("pubkey");
         let pubkey_hash = blake160(&pubkey.serialize());
 
-        let blake160 = if flags == IDENTITY_FLAGS_PUBKEY_HASH {
-            pubkey_hash
-        } else {
-            Bytes::from(&[0; 20][..])
-        };
+        let blake160 = if flags == IDENTITY_FLAGS_PUBKEY_HASH { pubkey_hash } else { Bytes::from(&[0; 20][..]) };
 
         let rc_root: Bytes = {
             let mut buf = BytesMut::new();
@@ -1548,6 +1351,10 @@ impl TestConfig {
             leading_witness_count: 0,
 
             chain_config: None,
+            cobuild_enabled: false,
+            cobuild_message: Some(Message::default()),
+            custom_extension_witnesses: None,
+            custom_extension_witnesses_beginning: None,
         }
     }
 
@@ -1681,10 +1488,8 @@ pub fn gen_witness_lock(
     }
 
     if use_rc && use_rc_identity {
-        let rc_identity = omni_lock::IdentityBuilder::default()
-            .identity(identity.clone())
-            .proofs(proofs.clone())
-            .build();
+        let rc_identity =
+            omni_lock::IdentityBuilder::default().identity(identity.clone()).proofs(proofs.clone()).build();
         let opt = omni_lock::IdentityOpt::new_unchecked(rc_identity.as_bytes());
         builder = builder.omni_identity(opt);
     }
@@ -1809,14 +1614,7 @@ pub fn gen_zero_witness_lock(
     } else {
         None
     };
-    let witness_lock = gen_witness_lock(
-        zero.freeze(),
-        use_rc,
-        use_rc_identity,
-        proofs,
-        identity,
-        preimage,
-    );
+    let witness_lock = gen_witness_lock(zero.freeze(), use_rc, use_rc_identity, proofs, identity, preimage);
 
     let mut res = BytesMut::new();
     res.resize(witness_lock.len(), 0);
@@ -1846,27 +1644,18 @@ pub fn generate_rce_cell(
         let mut random_args: [u8; 32] = Default::default();
         rng.fill(&mut random_args[..]);
         // let's first build the RCE cell which contains the RCData(RCRule/RCCellVec).
-        let (b0, rce_script) = build_script(
-            dummy,
-            tx_builder,
-            true,
-            smt_in_input,
-            &rc_rule,
-            Bytes::copy_from_slice(random_args.as_ref()),
-        );
+        let (b0, rce_script) =
+            build_script(dummy, tx_builder, true, smt_in_input, &rc_rule, Bytes::copy_from_slice(random_args.as_ref()));
         tx_builder = b0;
         // rce_script is in "old" blockchain types
         let hash = rce_script.code_hash();
 
-        cell_vec_builder =
-            cell_vec_builder.push(Byte32::from_slice(hash.as_slice()).expect("Byte32::from_slice"));
+        cell_vec_builder = cell_vec_builder.push(Byte32::from_slice(hash.as_slice()).expect("Byte32::from_slice"));
     }
 
     let cell_vec = cell_vec_builder.build();
 
-    let rce_cell_content = RCDataBuilder::default()
-        .set(RCDataUnion::RCCellVec(cell_vec))
-        .build();
+    let rce_cell_content = RCDataBuilder::default().set(RCDataUnion::RCCellVec(cell_vec)).build();
 
     let mut random_args: [u8; 32] = Default::default();
     rng.fill(&mut random_args[..]);
@@ -1887,10 +1676,7 @@ pub fn generate_rce_cell(
     (rce_script.code_hash(), tx_builder)
 }
 
-pub fn generate_proofs(
-    scheme: TestScheme,
-    smt_key: &Vec<[u8; 32]>,
-) -> (Vec<Vec<u8>>, Vec<Bytes>, Vec<u8>) {
+pub fn generate_proofs(scheme: TestScheme, smt_key: &Vec<[u8; 32]>) -> (Vec<Vec<u8>>, Vec<Bytes>, Vec<u8>) {
     let mut proofs = Vec::<Vec<u8>>::default();
     let mut rc_data = Vec::<Bytes>::default();
     let mut proof_masks = Vec::<u8>::default();
@@ -2000,22 +1786,9 @@ pub fn assert_script_error(err: Error, err_code: i8) {
     );
 }
 
-pub fn gen_consensus() -> Consensus {
-    let hardfork_switch = HardForkSwitch::new_without_any_enabled()
-        .as_builder()
-        .rfc_0232(200)
-        .build()
-        .unwrap();
-    ConsensusBuilder::default()
-        .hardfork_switch(hardfork_switch)
-        .build()
-}
-
 pub fn gen_tx_env() -> TxVerifyEnv {
     let epoch = EpochNumberWithFraction::new(300, 0, 1);
-    let header = HeaderView::new_advanced_builder()
-        .epoch(epoch.pack())
-        .build();
+    let header = HeaderView::new_advanced_builder().epoch(epoch.pack()).build();
     TxVerifyEnv::new_commit(&header)
 }
 
@@ -2039,4 +1812,75 @@ pub fn calculate_ripemd160(buf: &[u8]) -> [u8; 20] {
 
 pub fn bitcoin_hash160(buf: &[u8]) -> [u8; 20] {
     calculate_ripemd160(&calculate_sha256(buf))
+}
+
+pub fn verify_tx(
+    resolved_tx: ResolvedTransaction,
+    data_loader: DummyDataLoader,
+) -> TransactionScriptsVerifier<DummyDataLoader> {
+    let hard_fork = HardForks {
+        ckb2021: ckb_types::core::hardfork::CKB2021::new_mirana().as_builder().rfc_0032(5).build().unwrap(),
+        ckb2023: ckb_types::core::hardfork::CKB2023::new_mirana().as_builder().rfc_0049(10).build().unwrap(),
+    };
+    let consensus = ConsensusBuilder::default().hardfork_switch(hard_fork).build();
+    TransactionScriptsVerifier::new(
+        Arc::new(resolved_tx),
+        data_loader.clone(),
+        Arc::new(consensus),
+        Arc::new(TxVerifyEnv::new_commit(
+            &HeaderView::new_advanced_builder()
+                .epoch(ckb_types::core::EpochNumberWithFraction::new(5, 0, 1).pack())
+                .build(),
+        )),
+    )
+}
+
+#[test]
+fn test_gen_sign_msg() {
+    // generate_signing_message_hash(H256::from([1u8;32]), tx);
+}
+
+pub fn cobuild_generate_signing_message_hash(
+    message: &Option<Message>,
+    data_loader: &mut DummyDataLoader,
+    tx: &TransactionView,
+) -> [u8; 32] {
+    let mut count = 0;
+    // message
+    let mut hasher = match message {
+        Some(m) => {
+            let mut hasher = omni_lock_test::blake2b::new_sighash_all_blake2b();
+            hasher.update(m.as_slice());
+            count += m.as_slice().len();
+            hasher
+        }
+        None => omni_lock_test::blake2b::new_sighash_all_only_blake2b(),
+    };
+    // tx hash
+    hasher.update(tx.hash().as_slice());
+    count += 32;
+    // inputs cell and data
+    let inputs_len = tx.inputs().len();
+    for i in 0..inputs_len {
+        let input_cell = tx.inputs().get(i).unwrap();
+        let input_cell_out_point = input_cell.previous_output();
+        let (input_cell, input_cell_data) = data_loader.cells.get(&input_cell_out_point).unwrap();
+        hasher.update(input_cell.as_slice());
+        count += input_cell.as_slice().len();
+        hasher.update(&(input_cell_data.len() as u32).to_le_bytes());
+        count += 4;
+        hasher.update(input_cell_data);
+        count += input_cell_data.len();
+    }
+    // extra witnesses
+    for witness in tx.witnesses().into_iter().skip(inputs_len) {
+        hasher.update(&(witness.len() as u32).to_le_bytes());
+        count += 4;
+        hasher.update(&witness.raw_data());
+        count += witness.raw_data().len();
+    }
+    println!("cobuild_generate_signing_message_hash totally hashed {} bytes", count);
+    let mut result = [0u8; 32];
+    hasher.finalize(&mut result);
+    result
 }

@@ -3,6 +3,7 @@
 #else
 #define ASSERT(s) (void)0
 #endif
+#include <assert.h>
 
 int ckb_exit(signed char code);
 
@@ -52,7 +53,6 @@ UTEST(pubkey_hash, wrong_signature) {
 
   g_setting.wrong_signature = true;
   convert_setting_to_states();
-
   int r = simulator_main();
   bool b = (r == ERROR_IDENTITY_PUBKEY_BLAKE160_HASH ||
             r == ERROR_IDENTITY_SECP_RECOVER_PUBKEY ||
@@ -74,26 +74,6 @@ UTEST(pubkey_hash, wrong_pubkey_hash) {
 UTEST(owner_lock, pass) {
   init_input(&g_setting);
   g_setting.flags = IdentityFlagsOwnerLock;
-
-  uint8_t blake160[20] = {0xBE, 0xEF};
-
-  g_setting.input_lsh[0] = new_slice(32);
-  memcpy(g_setting.input_lsh[0].ptr, blake160, sizeof(blake160));
-  g_setting.input_lsh[0].size = 32;
-
-  g_setting.input_lsh_count = 1;
-  memcpy(g_setting.blake160, blake160, sizeof(blake160));
-
-  convert_setting_to_states();
-
-  int r = simulator_main();
-  ASSERT_EQ(0, r);
-}
-
-UTEST(owner_lock_without_witness, pass) {
-  init_input(&g_setting);
-  g_setting.flags = IdentityFlagsOwnerLock;
-  g_setting.empty_witness = true;
 
   uint8_t blake160[20] = {0xBE, 0xEF};
 

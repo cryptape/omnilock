@@ -10,16 +10,14 @@ use ckb_script::{ScriptError, ScriptGroupType, TransactionScriptsVerifier, TxVer
 use ckb_types::{
     bytes::Bytes,
     bytes::BytesMut,
-    core::{
-        cell::ResolvedTransaction, hardfork::HardForkSwitch, EpochNumberWithFraction, HeaderView,
-    },
+    core::{cell::ResolvedTransaction, EpochNumberWithFraction, HeaderView},
     packed::WitnessArgs,
     prelude::*,
     H256,
 };
 use lazy_static::lazy_static;
 use misc::*;
-use omni_lock_test::debug_utils::debug;
+// use omni_lock_test::debug_utils::debug;
 use std::fs;
 
 // Script args validation errors
@@ -43,10 +41,7 @@ fn test_multisig_0_2_3_unlock() {
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
 
-    let consensus = gen_consensus();
-    let tx_env = gen_tx_env();
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader);
 
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
@@ -67,11 +62,7 @@ fn test_multisig_invalid_flags() {
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
 
-    let consensus = gen_consensus();
-    let tx_env = gen_tx_env();
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
-
+    let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     assert_script_error(verify_result.unwrap_err(), ERROR_MULTSIG_SCRIPT_HASH)
@@ -91,11 +82,7 @@ fn test_multisig_invalid_flags2() {
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
 
-    let consensus = gen_consensus();
-    let tx_env = gen_tx_env();
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
-
+    let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     assert_script_error(verify_result.unwrap_err(), ERROR_MULTSIG_SCRIPT_HASH)
@@ -114,11 +101,7 @@ fn test_multisig_1_2_3_unlock() {
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
 
-    let consensus = gen_consensus();
-    let tx_env = gen_tx_env();
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
-
+    let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     verify_result.expect("pass verification");
@@ -137,11 +120,7 @@ fn test_multisig_3_7_15_unlock() {
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
 
-    let consensus = gen_consensus();
-    let tx_env = gen_tx_env();
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
-
+    let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     verify_result.expect("pass verification");
@@ -160,11 +139,7 @@ fn test_multisig_0_1_1_unlock() {
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
 
-    let consensus = gen_consensus();
-    let tx_env = gen_tx_env();
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
-
+    let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     verify_result.expect("pass verification");
@@ -183,11 +158,7 @@ fn test_multisig_0_2_2_unlock() {
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
 
-    let consensus = gen_consensus();
-    let tx_env = gen_tx_env();
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
-
+    let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     verify_result.expect("pass verification");
@@ -196,8 +167,8 @@ fn test_multisig_0_2_2_unlock() {
 #[test]
 #[ignore]
 fn test_multisig_0_2_3_unlock_smt_in_input_debug() {
-    let binary = fs::read("../../../build/omni_lock.debug").expect("read_to_string");
-    let omni_lock_debug = Bytes::from(binary);
+    // let binary = fs::read("../../../build/omni_lock.debug").expect("read_to_string");
+    // let omni_lock_debug = Bytes::from(binary);
 
     let mut data_loader = DummyDataLoader::new();
 
@@ -211,21 +182,17 @@ fn test_multisig_0_2_3_unlock_smt_in_input_debug() {
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
 
-    let consensus = gen_consensus();
-    let tx_env = gen_tx_env();
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
-
+    let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
 
-    debug(
-        "127.0.0.1:9999",
-        ScriptGroupType::Lock,
-        config.running_script.calc_script_hash(),
-        &omni_lock_debug,
-        &[],
-        &verifier,
-    );
+    // debug(
+    //     "127.0.0.1:9999",
+    //     ScriptGroupType::Lock,
+    //     config.running_script.calc_script_hash(),
+    //     &omni_lock_debug,
+    //     &[],
+    //     &verifier,
+    // );
 }
 
 #[test]
@@ -242,10 +209,374 @@ fn test_multisig_0_2_3_unlock_smt_in_input() {
     let tx = sign_tx(&mut data_loader, tx, &mut config);
     let resolved_tx = build_resolved_tx(&data_loader, &tx);
 
-    let consensus = gen_consensus();
-    let tx_env = gen_tx_env();
-    let mut verifier =
-        TransactionScriptsVerifier::new(&resolved_tx, &consensus, &data_loader, &tx_env);
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    verify_result.expect("pass verification");
+}
+
+#[test]
+fn test_cobuild_multisig_0_2_3_unlock() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, true);
+    config.cobuild_enabled = true;
+    config.set_multisig(0, 2, 3);
+
+    config.scheme = TestScheme::OnWhiteList;
+
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    verify_result.expect("pass verification");
+}
+
+#[test]
+fn test_cobuild_multisig_invalid_flags() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, true);
+    config.set_multisig(0, 2, 3);
+    config.multisig.set(0, 2, 4);
+    config.cobuild_enabled = true;
+
+    config.scheme = TestScheme::OnWhiteList;
+
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    assert_script_error(verify_result.unwrap_err(), ERROR_MULTSIG_SCRIPT_HASH)
+}
+
+#[test]
+fn test_cobuild_multisig_invalid_flags2() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, true);
+    config.set_multisig(0, 2, 3);
+    config.multisig.set(0, 3, 3);
+    config.cobuild_enabled = true;
+
+    config.scheme = TestScheme::OnWhiteList;
+
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    assert_script_error(verify_result.unwrap_err(), ERROR_MULTSIG_SCRIPT_HASH)
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_zero() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = 0x0000_0000_8888_8888u64;
+    config.set_since(since, 0);
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    assert_script_error(verify_result.unwrap_err(), ERROR_INCORRECT_SINCE_VALUE)
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_minus_1() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = 0x0000_0000_8888_8888u64;
+    config.set_since(since, since - 1);
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    assert_script_error(verify_result.unwrap_err(), ERROR_INCORRECT_SINCE_VALUE)
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_eq() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = 0x0000_0000_8888_8888u64;
+    config.set_since(since, since);
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    verify_result.expect("pass verification");
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_relative_eq() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = 0x8000_0000_8888_8888u64;
+    config.set_since(since, since);
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    verify_result.expect("pass verification");
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_relative_not_comparable() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = 0x8000_0000_8888_8888u64;
+    let since2 = 0x0000_0000_8888_8888u64;
+    config.set_since(since, since2);
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    assert_script_error(verify_result.unwrap_err(), ERROR_INCORRECT_SINCE_FLAGS)
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_flags() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = 0x0000_0000_8888_8888u64;
+    config.set_since(since, since | 0x2000_0000_0000_0000);
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    assert_script_error(verify_result.unwrap_err(), ERROR_INCORRECT_SINCE_FLAGS)
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_add_1() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = 0x0000_0000_8888_8888u64;
+    config.set_since(since, since + 1);
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    verify_result.expect("pass verification");
+}
+
+lazy_static! {
+    static ref TESTDATA_SINCE_EPOCH: EpochNumberWithFraction = EpochNumberWithFraction::new(200, 5, 100);
+    static ref TESTDATA_SINCE_EPOCH_VAL: u64 = 0x2000_0000_0000_0000u64;
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_epoch() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = TESTDATA_SINCE_EPOCH_VAL.clone() + TESTDATA_SINCE_EPOCH.full_value();
+
+    config.set_since(since, 0);
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    assert_script_error(verify_result.unwrap_err(), ERROR_INCORRECT_SINCE_FLAGS)
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_epoch_add1() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = TESTDATA_SINCE_EPOCH_VAL.clone() + TESTDATA_SINCE_EPOCH.full_value();
+
+    let epoch = EpochNumberWithFraction::new(200, 2, 200);
+    config.set_since(since, TESTDATA_SINCE_EPOCH_VAL.clone() + epoch.full_value());
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    assert_script_error(verify_result.unwrap_err(), ERROR_INCORRECT_SINCE_VALUE)
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_epoch_add2() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = TESTDATA_SINCE_EPOCH_VAL.clone() + TESTDATA_SINCE_EPOCH.full_value();
+
+    let epoch = EpochNumberWithFraction::new(200, 1, 600);
+    config.set_since(since, TESTDATA_SINCE_EPOCH_VAL.clone() + epoch.full_value());
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    assert_script_error(verify_result.unwrap_err(), ERROR_INCORRECT_SINCE_VALUE)
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_epoch_add3() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = TESTDATA_SINCE_EPOCH_VAL.clone() + TESTDATA_SINCE_EPOCH.full_value();
+
+    let epoch = EpochNumberWithFraction::new(200, 6, 50);
+    config.set_since(since, TESTDATA_SINCE_EPOCH_VAL.clone() + epoch.full_value());
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    verify_result.expect("pass verification");
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_epoch_add4() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = TESTDATA_SINCE_EPOCH_VAL.clone() + TESTDATA_SINCE_EPOCH.full_value();
+
+    let epoch = EpochNumberWithFraction::new(200, 1, 2);
+    config.set_since(since, TESTDATA_SINCE_EPOCH_VAL.clone() + epoch.full_value());
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    verify_result.expect("pass verification");
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_epoch_add5() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = TESTDATA_SINCE_EPOCH_VAL.clone() + TESTDATA_SINCE_EPOCH.full_value();
+
+    let epoch = EpochNumberWithFraction::new(200, 6, 100);
+    config.set_since(since, TESTDATA_SINCE_EPOCH_VAL.clone() + epoch.full_value());
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    verify_result.expect("pass verification");
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_epoch_add6() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = TESTDATA_SINCE_EPOCH_VAL.clone() + TESTDATA_SINCE_EPOCH.full_value();
+
+    config.set_since(since, since + 1);
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
+    verifier.set_debug_printer(debug_printer);
+    let verify_result = verifier.verify(MAX_CYCLES);
+    verify_result.expect("pass verification");
+}
+
+#[test]
+fn test_multisig_0_2_3_unlock_with_since_epoch_eq() {
+    let mut data_loader = DummyDataLoader::new();
+
+    let mut config = TestConfig::new(IDENTITY_FLAGS_MULTISIG, false);
+    config.set_multisig(0, 2, 3);
+
+    let since = TESTDATA_SINCE_EPOCH_VAL.clone() + TESTDATA_SINCE_EPOCH.full_value();
+
+    config.set_since(since, since);
+    let tx = gen_tx(&mut data_loader, &mut config);
+    let tx = sign_tx(&mut data_loader, tx, &mut config);
+    let resolved_tx = build_resolved_tx(&data_loader, &tx);
+
+    let mut verifier = verify_tx(resolved_tx, data_loader);
     verifier.set_debug_printer(debug_printer);
     let verify_result = verifier.verify(MAX_CYCLES);
     verify_result.expect("pass verification");

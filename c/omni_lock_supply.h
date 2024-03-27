@@ -124,7 +124,7 @@ exit:
 }
 
 
-int iterate_by_type_script_hash(uint8_t* hash, size_t source, iterate_func_t func, SupplyContextType* ctx) {
+int iterate_by_type_script_hash(const uint8_t* hash, size_t source, iterate_func_t func, SupplyContextType* ctx) {
   int err = 0;
   size_t i = 0;
   uint8_t hash2[32] = {0};
@@ -152,7 +152,7 @@ exit:
   return err;
 }
 
-int check_supply(uint8_t* cell_id) {
+int check_supply(const uint8_t* cell_id) {
   int err = 0;
   SupplyContextType ctx = {0};
   // locate the input info cell

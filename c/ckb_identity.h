@@ -1,8 +1,10 @@
 #ifndef CKB_C_STDLIB_CKB_IDENTITY_H_
 #define CKB_C_STDLIB_CKB_IDENTITY_H_
+
 #include <blake2b.h>
 #include <ckb_exec.h>
 
+#include "blockchain.h"
 #include "ckb_consts.h"
 #include "ckb_keccak256.h"
 #include "ripemd160.h"
@@ -163,8 +165,7 @@ static int _ckb_recover_secp256k1_pubkey(const uint8_t *sig, size_t sig_len,
 
   /* Load signature */
   secp256k1_context context;
-  uint8_t secp_data[CKB_SECP256K1_DATA_SIZE];
-  ret = ckb_secp256k1_custom_verify_only_initialize(&context, secp_data);
+  ret = ckb_secp256k1_custom_verify_only_initialize(&context);
   if (ret != 0) {
     return ret;
   }
@@ -285,8 +286,7 @@ static int _recover_secp256k1_pubkey_btc(const uint8_t *sig, size_t sig_len,
   }
 
   secp256k1_context context;
-  uint8_t secp_data[CKB_SECP256K1_DATA_SIZE];
-  ret = ckb_secp256k1_custom_verify_only_initialize(&context, secp_data);
+  ret = ckb_secp256k1_custom_verify_only_initialize(&context);
   if (ret != 0) {
     return ret;
   }
@@ -385,6 +385,7 @@ int generate_sighash_all(uint8_t *msg, size_t msg_len) {
     return ERROR_IDENTITY_ARGUMENTS_LEN;
   }
 
+  // TODO: migrate this to molecule-c2 so we don't need MAX_WITNESS_SIZE
   /* Load witness of first input */
   ret = ckb_load_witness(temp, &read_len, 0, 0, CKB_SOURCE_GROUP_INPUT);
   if (ret != CKB_SUCCESS) {
@@ -522,15 +523,10 @@ static int convert_eth_message_displaying(const uint8_t *msg, size_t msg_len,
 }
 
 int verify_sighash_all(uint8_t *pubkey_hash, uint8_t *sig, uint32_t sig_len,
-                       validate_signature_t func, convert_msg_t convert) {
+                       validate_signature_t func, convert_msg_t convert, const uint8_t* signing_message_hash) {
   int ret = 0;
-  uint8_t old_msg[BLAKE2B_BLOCK_SIZE];
   uint8_t new_msg[BLAKE2B_BLOCK_SIZE];
-  ret = generate_sighash_all(old_msg, sizeof(old_msg));
-  if (ret != 0) {
-    return ret;
-  }
-  ret = convert(old_msg, sizeof(old_msg), new_msg, sizeof(new_msg));
+  ret = convert(signing_message_hash, BLAKE2B_BLOCK_SIZE, new_msg, sizeof(new_msg));
   if (ret != 0) return ret;
 
   uint8_t output_pubkey_hash[BLAKE160_SIZE];
@@ -671,7 +667,7 @@ bool is_lock_script_hash_present(uint8_t *lock_script_hash) {
 
 int verify_via_dl(CkbIdentityType *id, uint8_t *sig, uint32_t sig_len,
                   uint8_t *preimage, uint32_t preimage_len,
-                  CkbSwappableSignatureInstance *inst) {
+                  CkbSwappableSignatureInstance *inst, const uint8_t* signing_message_hash) {
   int err = 0;
   uint8_t hash[BLAKE2B_BLOCK_SIZE];
 
@@ -694,11 +690,11 @@ int verify_via_dl(CkbIdentityType *id, uint8_t *sig, uint32_t sig_len,
   if (err != 0) return err;
 
   return verify_sighash_all(pubkey_hash, sig, sig_len, inst->verify_func,
-                            _ckb_convert_copy);
+                            _ckb_convert_copy, signing_message_hash);
 }
 
 int verify_via_exec(CkbIdentityType *id, uint8_t *sig, uint32_t sig_len,
-                    uint8_t *preimage, uint32_t preimage_len) {
+                    uint8_t *preimage, uint32_t preimage_len, const uint8_t* signing_message_hash) {
   int err = 0;
   uint8_t hash[BLAKE2B_BLOCK_SIZE];
 
@@ -710,9 +706,6 @@ int verify_via_exec(CkbIdentityType *id, uint8_t *sig, uint32_t sig_len,
   if (preimage_len != (32 + 1 + 1 + 8 + 20)) {
     return ERROR_INVALID_PREIMAGE;
   }
-
-  int ret = 0;
-
   // check preimage hash
   blake2b_state ctx;
   blake2b_init(&ctx, BLAKE2B_BLOCK_SIZE);
@@ -722,12 +715,6 @@ int verify_via_exec(CkbIdentityType *id, uint8_t *sig, uint32_t sig_len,
     return ERROR_INVALID_PREIMAGE;
   }
 
-  // get message
-  uint8_t msg[BLAKE2B_BLOCK_SIZE];
-  ret = generate_sighash_all(msg, sizeof(msg));
-  if (ret != 0) {
-    return ret;
-  }
 
   uint8_t *code_hash = preimage;
   uint8_t hash_type = *(preimage + 32);
@@ -748,7 +735,7 @@ int verify_via_exec(CkbIdentityType *id, uint8_t *sig, uint32_t sig_len,
   if (err != 0) return err;
   err = ckb_exec_append(&bin_args, pubkey_hash, 20);
   if (err != 0) return err;
-  err = ckb_exec_append(&bin_args, msg, sizeof(msg));
+  err = ckb_exec_append(&bin_args, (uint8_t*)signing_message_hash, BLAKE2B_BLOCK_SIZE);
   if (err != 0) return err;
   err = ckb_exec_append(&bin_args, sig, sig_len);
   if (err != 0) return err;
@@ -837,8 +824,7 @@ int verify_multisig(const uint8_t *lock_bytes, size_t lock_bytes_len,
   // contract, you don't have to wait for the foundation to ship a new
   // cryptographic algorithm. You can just build and ship your own.
   secp256k1_context context;
-  uint8_t secp_data[CKB_SECP256K1_DATA_SIZE];
-  ret = ckb_secp256k1_custom_verify_only_initialize(&context, secp_data);
+  ret = ckb_secp256k1_custom_verify_only_initialize(&context);
   if (ret != 0) return ret;
 
   // We will perform *threshold* number of signature verifications here.
@@ -912,54 +898,51 @@ static uint8_t *g_identity_code_buffer = NULL;
 static uint32_t g_identity_code_size = 0;
 
 int ckb_verify_identity(CkbIdentityType *id, uint8_t *sig, uint32_t sig_size,
-                        uint8_t *preimage, uint32_t preimage_size) {
+                        uint8_t *preimage, uint32_t preimage_size, const uint8_t* signing_message_hash) {
   if (id->flags == IdentityFlagsCkb) {
     if (sig == NULL || sig_size != SECP256K1_SIGNATURE_SIZE) {
       return ERROR_IDENTITY_WRONG_ARGS;
     }
     return verify_sighash_all(id->id, sig, sig_size,
-                              validate_signature_secp256k1, _ckb_convert_copy);
+                              validate_signature_secp256k1, _ckb_convert_copy, signing_message_hash);
   } else if (id->flags == IdentityFlagsEthereum) {
     if (sig == NULL || sig_size != SECP256K1_SIGNATURE_SIZE) {
       return ERROR_IDENTITY_WRONG_ARGS;
     }
     return verify_sighash_all(id->id, sig, sig_size, validate_signature_eth,
-                              convert_eth_message);
+                              convert_eth_message, signing_message_hash);
   } else if (id->flags == IdentityFlagsEthereumDisplaying) {
     if (sig == NULL || sig_size != SECP256K1_SIGNATURE_SIZE) {
       return ERROR_IDENTITY_WRONG_ARGS;
     }
     return verify_sighash_all(id->id, sig, sig_size, validate_signature_eth,
-                              convert_eth_message_displaying);
+                              convert_eth_message_displaying, signing_message_hash);
   } else if (id->flags == IdentityFlagsEos) {
     if (sig == NULL || sig_size != SECP256K1_SIGNATURE_SIZE) {
       return ERROR_IDENTITY_WRONG_ARGS;
     }
     return verify_sighash_all(id->id, sig, sig_size, validate_signature_eos,
-                              convert_copy);
+                              convert_copy, signing_message_hash);
   } else if (id->flags == IdentityFlagsTron) {
     if (sig == NULL || sig_size != SECP256K1_SIGNATURE_SIZE) {
       return ERROR_IDENTITY_WRONG_ARGS;
     }
     return verify_sighash_all(id->id, sig, sig_size, validate_signature_eth,
-                              convert_tron_message);
+                              convert_tron_message, signing_message_hash);
   } else if (id->flags == IdentityFlagsBitcoin) {
     if (sig == NULL || sig_size != SECP256K1_SIGNATURE_SIZE) {
       return ERROR_IDENTITY_WRONG_ARGS;
     }
     return verify_sighash_all(id->id, sig, sig_size, validate_signature_btc,
-                              convert_btc_message);
+                              convert_btc_message, signing_message_hash);
   } else if (id->flags == IdentityFlagsDogecoin) {
     if (sig == NULL || sig_size != SECP256K1_SIGNATURE_SIZE) {
       return ERROR_IDENTITY_WRONG_ARGS;
     }
     return verify_sighash_all(id->id, sig, sig_size, validate_signature_btc,
-                              convert_doge_message);
+                              convert_doge_message, signing_message_hash);
   } else if (id->flags == IdentityCkbMultisig) {
-    uint8_t msg[BLAKE2B_BLOCK_SIZE];
-    int ret = generate_sighash_all(msg, sizeof(msg));
-    if (ret != 0) return ret;
-    return verify_multisig(sig, sig_size, msg, id->id);
+    return verify_multisig(sig, sig_size, signing_message_hash, id->id);
   } else if (id->flags == IdentityFlagsOwnerLock) {
     if (is_lock_script_hash_present(id->id)) {
       return 0;
@@ -975,9 +958,9 @@ int ckb_verify_identity(CkbIdentityType *id, uint8_t *sig, uint32_t sig_size,
         .prefilled_buffer_size = 0,
         .verify_func = NULL};
     return verify_via_dl(id, sig, sig_size, preimage, preimage_size,
-                         &swappable_inst);
+                         &swappable_inst, signing_message_hash);
   } else if (id->flags == IdentityFlagsExec) {
-    return verify_via_exec(id, sig, sig_size, preimage, preimage_size);
+    return verify_via_exec(id, sig, sig_size, preimage, preimage_size, signing_message_hash);
   }
   return CKB_INVALID_DATA;
 }
